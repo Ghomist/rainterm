@@ -1,0 +1,63 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "rainterm",
+  "version": "0.1.0",
+  "identifier": "com.rainterm.app",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "rainterm",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 720,
+        "minHeight": 440,
+        "center": true,
+        "decorations": false,
+        "transparent": true,
+        "shadow": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis",
+      "app",
+      "dmg",
+      "deb",
+      "appimage"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "publisher": "rainterm",
+    "category": "DeveloperTool",
+    "shortDescription": "A fast, beautiful terminal and SSH client",
+    "longDescription": "rainterm is a modern terminal emulator and SSH/SFTP client with command folding, keyword highlighting, split panes and input groups.",
+    "copyright": "Copyright © 2026 rainterm",
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "displayLanguageSelector": false,
+        "languages": [
+          "English",
+          "SimpChinese"
+        ]
+      }
+    }
+  }
+}

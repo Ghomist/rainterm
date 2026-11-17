@@ -1,0 +1,95 @@
+# rainterm
+
+A fast, good-looking terminal emulator and SSH/SFTP client, inspired by WindTerm.
+Built with **Tauri 2** (Rust) + **React** + **shadcn/ui**, rendered by **xterm.js** (WebGL).
+
+## Features
+
+**Terminal**
+- Local shells (PowerShell, cmd, WSL, Git Bash; your login shell on macOS/Linux), SSH, serial ports
+- Tabs (drag to reorder, rename, duplicate) and split panes with draggable dividers, maximize/restore
+- Line numbers, **command blocks & output folding** (shell integration via OSC 133, with a fallback for any shell)
+- **Smart keyword highlighting** (errors, warnings, IPs, URLs, dates…) done in the Rust output pipeline;
+  leaves already-colored text and full-screen apps alone; rules are editable
+- **Input groups**: put terminals in group A–D to type into all of them at once (across tabs);
+  plus broadcast to the current tab / all terminals
+- Find (Ctrl+Shift+F), copy on select, right-click copy/paste, clickable links (Ctrl+click)
+- Session logging (rendered text, not raw escape codes)
+
+**SSH**
+- Password, private key (with passphrase prompt), SSH agent / Pageant, or **Auto** (agent → default keys → password)
+- Passwords optionally stored in the OS keychain; never written to disk
+- known_hosts verification with a fingerprint prompt; changed keys are refused
+- Jump host (ProxyJump), local port forwarding (-L)
+- **Import from `~/.ssh/config`** (Host/HostName/User/Port/IdentityFile/ProxyJump, `Include`, wildcards)
+- Quick connect: type `user@host[:port]` in the sidebar search or the command palette
+
+**File panel** (Ctrl+Shift+E)
+- Local files, or SFTP on the active SSH session — follows the terminal's `cd`
+- Breadcrumbs, back/forward, sort, filter, keyboard navigation (F2 rename, Del, Backspace, type-ahead)
+- Recursive upload/download with progress, speed, ETA and cancel; drag files in from the OS to upload;
+  drag rows onto a terminal to insert their paths
+- Open & edit remote files: changes are uploaded every time you save
+
+**App**
+- 16 themes (Catppuccin, One Dark/Light, Nord, Dracula, Tokyo Night, Gruvbox, Solarized, GitHub…),
+  dark / light / follow system; optional Mica translucency on Windows 11
+- Restores tabs and splits on launch, remembers window size, asks before closing live remote sessions
+- Command palette (Ctrl+Shift+P), lock screen with idle auto-lock (Ctrl+Shift+L)
+
+## Keyboard shortcuts
+
+| Action | Shortcut |
+| --- | --- |
+| New tab / close pane | Ctrl+Shift+T / Ctrl+Shift+W |
+| Split right / down | Alt+Shift+Plus / Alt+Shift+Minus |
+| Focus next pane / maximize pane | Alt+Arrows / Ctrl+Shift+Z |
+| Next / previous tab, jump to tab | Ctrl+Tab / Ctrl+Shift+Tab, Alt+1…9 |
+| Command palette, settings | Ctrl+Shift+P, Ctrl+, |
+| Find in terminal | Ctrl+Shift+F |
+| Previous / next command | Ctrl+Up / Ctrl+Down |
+| Fold / unfold all output | Ctrl+Shift+[ / Ctrl+Shift+] |
+| Toggle sidebar / file panel | Ctrl+Shift+B / Ctrl+Shift+E |
+| Broadcast to tab | Ctrl+Shift+I |
+| Copy / paste | Ctrl+C (with selection) or Ctrl+Shift+C / Ctrl+Shift+V |
+| Lock | Ctrl+Shift+L |
+
+## Development
+
+Requirements: Node 20+, pnpm, Rust (stable), and the [Tauri prerequisites](https://tauri.app/start/prerequisites/).
+
+```bash
+pnpm install
+pnpm tauri dev      # run the app with hot reload
+pnpm tauri build    # release build + installer (src-tauri/target/release/bundle)
+```
+
+Checks:
+
+```bash
+pnpm exec tsc --noEmit
+cd src-tauri && cargo test --lib
+```
+
+## Project layout
+
+```
+src/                     React frontend
+  lib/term-session.ts    one xterm.js instance + backend session (flow control, acks)
+  lib/blocks.ts          command blocks, folding, OSC 133 handling
+  store/app.ts           app state: tabs, panes, layouts, profiles, settings, session restore
+  components/            UI (title bar, sidebar, terminal area, file panel, dialogs…)
+src-tauri/src/           Rust backend
+  session/               local PTY, SSH (russh), serial; output pump with batching + backpressure
+  highlight.rs           keyword highlighting stream filter
+  files.rs               local FS + SFTP, transfers, remote edit sync
+  ssh_config.rs          ~/.ssh/config reader
+src-tauri/vendor/conpty  Microsoft ConPTY (conpty.dll + OpenConsole.exe, MIT) shipped on Windows
+```
+
+## Data locations
+
+Settings, saved sessions, command history and logs live in `~/.rainterm` on every platform
+(`%USERPROFILE%\.rainterm` on Windows; override with the `RAINTERM_HOME` environment variable).
+Data from older versions (the OS config dir) is copied over on first start.
+Secrets are stored only in the OS keychain.
