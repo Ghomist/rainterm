@@ -3,6 +3,20 @@
 A fast, good-looking terminal emulator and SSH/SFTP client, inspired by WindTerm.
 Built with **Tauri 2** (Rust) + **React** + **shadcn/ui**, rendered by **xterm.js** (WebGL).
 
+## Download
+
+Grab the latest installer from **[Releases](https://github.com/Ghomist/rainterm/releases/latest)**:
+
+| Platform | File |
+| --- | --- |
+| Windows 10/11 (x64) | `rainterm_<version>_x64-setup.exe` |
+| macOS Apple Silicon | `rainterm_<version>_aarch64.dmg` |
+| macOS Intel | `rainterm_<version>_x64.dmg` |
+| Linux (x64) | `rainterm_<version>_amd64.AppImage` or `.deb` |
+
+The builds aren't code-signed yet: on Windows click "More info → Run anyway" if SmartScreen asks;
+on macOS right-click the app → Open the first time.
+
 ## Features
 
 **Terminal**
@@ -15,6 +29,7 @@ Built with **Tauri 2** (Rust) + **React** + **shadcn/ui**, rendered by **xterm.j
   plus broadcast to the current tab / all terminals
 - Find (Ctrl+Shift+F), copy on select, right-click copy/paste, clickable links (Ctrl+click)
 - Session logging (rendered text, not raw escape codes)
+- Completion popup while typing: command history, file paths and every command on `PATH`
 
 **SSH**
 - Password, private key (with passphrase prompt), SSH agent / Pageant, or **Auto** (agent → default keys → password)
@@ -23,6 +38,18 @@ Built with **Tauri 2** (Rust) + **React** + **shadcn/ui**, rendered by **xterm.j
 - Jump host (ProxyJump), local port forwarding (-L)
 - **Import from `~/.ssh/config`** (Host/HostName/User/Port/IdentityFile/ProxyJump, `Include`, wildcards)
 - Quick connect: type `user@host[:port]` in the sidebar search or the command palette
+- **Session groups**: create / rename groups, drag sessions between them, connect a whole group
+
+**Side panels** — an icon rail on each edge; left and right panels open side by side, both resizable.
+Right-click an icon to move it to the other side. Default: Sessions, Files, Quick commands on the left;
+Monitor, Ports, Containers, Kubernetes on the right. Ctrl+Shift+B hides both.
+
+**Quick ops** (for the active terminal's machine — this computer, or the SSH server)
+- **Resource monitor**: CPU, memory, GPU, disks, processes (end / copy / reveal)
+- **Ports**: listening ports with their process; open in a browser, or **forward a remote port to this computer** in one click
+- **Containers** (docker / podman): start, stop, restart, remove, follow logs, open a shell
+- **Kubernetes** (kubectl): pods / deployments / services per namespace; logs, shell, describe, delete, rollout restart, scale
+- **Quick commands**: saved command lines (single or multi-line) sent to the terminal with one click
 
 **File panel** (Ctrl+Shift+E)
 - Local files, or SFTP on the active SSH session — follows the terminal's `cd`
@@ -36,6 +63,7 @@ Built with **Tauri 2** (Rust) + **React** + **shadcn/ui**, rendered by **xterm.j
   dark / light / follow system; optional Mica translucency on Windows 11
 - Restores tabs and splits on launch, remembers window size, asks before closing live remote sessions
 - Command palette (Ctrl+Shift+P), lock screen with idle auto-lock (Ctrl+Shift+L)
+- Every shortcut is configurable (Settings → Shortcuts)
 
 ## Keyboard shortcuts
 
@@ -49,7 +77,8 @@ Built with **Tauri 2** (Rust) + **React** + **shadcn/ui**, rendered by **xterm.j
 | Find in terminal | Ctrl+Shift+F |
 | Previous / next command | Ctrl+Up / Ctrl+Down |
 | Fold / unfold all output | Ctrl+Shift+[ / Ctrl+Shift+] |
-| Toggle sidebar / file panel | Ctrl+Shift+B / Ctrl+Shift+E |
+| Hide / show side panels | Ctrl+Shift+B |
+| Sessions / files / quick commands / monitor | Ctrl+Shift+S / E / K / M |
 | Broadcast to tab | Ctrl+Shift+I |
 | Copy / paste | Ctrl+C (with selection) or Ctrl+Shift+C / Ctrl+Shift+V |
 | Lock | Ctrl+Shift+L |

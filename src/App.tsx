@@ -2,11 +2,10 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect } from "react";
 import { CommandPalette } from "@/components/CommandPalette";
 import { Dialogs } from "@/components/dialogs";
-import { FilePanel } from "@/components/FilePanel";
+import { Dock } from "@/components/Dock";
 import { LockScreen } from "@/components/LockScreen";
 import { Overlays } from "@/components/Overlays";
 import { SettingsDialog } from "@/components/SettingsDialog";
-import { Sidebar } from "@/components/Sidebar";
 import { StatusBar } from "@/components/StatusBar";
 import { TerminalArea } from "@/components/TerminalArea";
 import { TitleBar } from "@/components/TitleBar";
@@ -16,7 +15,7 @@ import { comboFromEvent, keymap, recording } from "@/lib/keymap";
 import { machineKey, pollMachine } from "@/lib/monitor";
 import { confirm } from "@/lib/overlay";
 import { themeById } from "@/lib/term-theme";
-import { useApp, useThemeId } from "@/store/app";
+import { isViewOpen, useApp, useThemeId } from "@/store/app";
 
 export default function App() {
   const init = useApp((s) => s.init);
@@ -67,7 +66,7 @@ export default function App() {
   useIdleLock();
 
   // Resource monitor: poll the active session's machine (faster while the panel is open).
-  const monitorOpen = useApp((s) => s.monitorOpen);
+  const monitorOpen = useApp((s) => isViewOpen(s, "monitor"));
   const machine = useApp((s) => {
     const tab = s.tabs.find((t) => t.id === s.activeTabId);
     const pane = tab ? s.panes[tab.activePane] : null;
@@ -113,10 +112,10 @@ export default function App() {
     <TooltipProvider>
       <div className="flex h-full flex-col bg-chrome">
         <TitleBar />
-        <div className="flex min-h-0 flex-1 px-1.5">
-          <Sidebar />
+        <div className="flex min-h-0 flex-1">
+          <Dock side="left" />
           <TerminalArea />
-          <FilePanel />
+          <Dock side="right" />
         </div>
         <StatusBar />
       </div>
@@ -173,10 +172,15 @@ function runAction(action: string, pane: ReturnType<typeof useApp.getState>["pan
       return t && s.setActiveTab(t.id);
     }
     case "palette": return s.set({ paletteOpen: !s.paletteOpen });
-    case "sidebar": return s.set({ sidebarOpen: !s.sidebarOpen });
-    case "files": return s.toggleDock("files");
-    case "monitor": return s.toggleDock("monitor");
-    case "snippets": return s.toggleDock("snippets");
+    case "sidebar": return s.togglePanels();
+    case "sessionsView": return s.toggleView("sessions");
+    case "files":
+    case "monitor":
+    case "snippets":
+    case "ports":
+    case "containers":
+    case "k8s":
+      return s.toggleView(action);
     case "settings": return s.set({ settingsOpen: true });
     case "find": return s.set({ searchOpen: true });
     case "broadcast": return s.toggleBroadcast();

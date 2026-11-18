@@ -1,6 +1,20 @@
 // Typed wrappers around the Rust commands in src-tauri/src/lib.rs.
 import { Channel, invoke } from "@tauri-apps/api/core";
 
+export interface PortEntry {
+  proto: "tcp" | "udp" | string;
+  address: string;
+  port: number;
+  pid: number | null;
+  process: string | null;
+}
+
+export interface RunOutput {
+  code: number;
+  stdout: string;
+  stderr: string;
+}
+
 export interface ShellSpec {
   id: string;
   name: string;
@@ -204,6 +218,12 @@ export const ipc = {
   historyRemote: (sessionId: string) => invoke<string[]>("history_remote", { sessionId }),
   commandsLocal: (shellId: string, program: string) => invoke<string[]>("commands_local", { shellId, program }),
   commandsRemote: (sessionId: string) => invoke<string[]>("commands_remote", { sessionId }),
+  portsList: (sessionId: string | null) => invoke<PortEntry[]>("ports_list", { sessionId }),
+  opsRun: (sessionId: string | null, tool: "docker" | "podman" | "kubectl", args: string[]) =>
+    invoke<RunOutput>("ops_run", { sessionId, tool, args }),
+  sshForwardAdd: (sessionId: string, localPort: number, remoteHost: string, remotePort: number) =>
+    invoke<number>("ssh_forward_add", { sessionId, localPort, remoteHost, remotePort }),
+  sshForwardStop: (sessionId: string, localPort: number) => invoke<boolean>("ssh_forward_stop", { sessionId, localPort }),
   sshConfigHosts: () => invoke<[SshConfigHost[], string]>("ssh_config_hosts"),
   setHighlightRules: (rules: HighlightRule[]) => invoke<string[]>("set_highlight_rules", { rules }),
   defaultHighlightRules: () => invoke<HighlightRule[]>("default_highlight_rules"),

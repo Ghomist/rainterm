@@ -3,7 +3,7 @@ import { Circle, Hash, Highlighter, Radio } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { groupById, useActivePane, useApp } from "@/store/app";
+import { isViewOpen, groupById, useActivePane, useApp } from "@/store/app";
 import { useActiveMachine } from "./MonitorPanel";
 import { StatusDot } from "./StatusDot";
 
@@ -105,8 +105,8 @@ export function StatusBar() {
 /** Bottom-left resource summary of the active session's machine; click for the panel. */
 function MonitorChip() {
   const { key, state } = useActiveMachine();
-  const open = useApp((s) => s.monitorOpen);
-  const toggleDock = useApp((s) => s.toggleDock);
+  const open = useApp((s) => isViewOpen(s, "monitor"));
+  const toggleView = useApp((s) => s.toggleView);
   const snap = state?.snap;
   if (!key || !snap) return null;
   const mem = snap.memTotal ? (snap.memUsed / snap.memTotal) * 100 : 0;
@@ -126,7 +126,7 @@ function MonitorChip() {
     <Tooltip content={`${key === "local" ? "This computer" : snap.host} · resource monitor`} shortcut="monitor" side="top">
       <button
         type="button"
-        onClick={() => toggleDock("monitor")}
+        onClick={() => toggleView("monitor")}
         className={cn(
           "ml-1 flex h-[18px] items-center gap-2 rounded px-1.5 tabular-nums transition-colors hover:bg-ov/[0.07] hover:text-foreground",
           open && "bg-primary/12 text-primary",

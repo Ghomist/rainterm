@@ -30,10 +30,14 @@ export const ACTIONS: ActionDef[] = [
   { id: "lastTab", label: "Go to last tab", group: "Tabs & panes", keys: ["Alt+9"] },
 
   { id: "palette", label: "Command palette", group: "Panels", keys: ["Ctrl+Shift+P"] },
-  { id: "sidebar", label: "Toggle sidebar", group: "Panels", keys: ["Ctrl+Shift+B"] },
+  { id: "sidebar", label: "Hide / show side panels", group: "Panels", keys: ["Ctrl+Shift+B"] },
+  { id: "sessionsView", label: "Sessions", group: "Panels", keys: ["Ctrl+Shift+S"] },
   { id: "files", label: "Files", group: "Panels", keys: ["Ctrl+Shift+E"] },
   { id: "monitor", label: "Resource monitor", group: "Panels", keys: ["Ctrl+Shift+M"] },
   { id: "snippets", label: "Quick commands", group: "Panels", keys: ["Ctrl+Shift+K"] },
+  { id: "ports", label: "Ports", group: "Panels", keys: [] },
+  { id: "containers", label: "Containers", group: "Panels", keys: [] },
+  { id: "k8s", label: "Kubernetes", group: "Panels", keys: [] },
   { id: "settings", label: "Settings", group: "Panels", keys: ["Ctrl+,"] },
 
   { id: "find", label: "Find in terminal", group: "Terminal", keys: ["Ctrl+Shift+F"] },

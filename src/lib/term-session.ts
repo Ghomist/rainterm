@@ -80,7 +80,8 @@ export class TermSession {
   private lastCwd = "";
   private repeatSentAt = 0;
   private ackTimer: number | null = null;
-  private resizeTimer: number | null = null;
+  private fitFrame: number | null = null;
+  private ptyTimer: number | null = null;
   private observer: ResizeObserver | null = null;
   private host: HTMLElement | null = null;
   private settings: Settings;
@@ -151,7 +152,15 @@ export class TermSession {
 
     this.term.onData((d) => this.input(d, true));
     this.term.onBinary((d) => this.input(d, true));
-    this.term.onResize(({ cols, rows }) => this.id && void ipc.resize(this.id, cols, rows));
+    // The grid follows the layout every frame; the PTY / SSH side only gets the size once
+    // it settles, so the shell isn't flooded with SIGWINCH (and prompt redraws) mid-animation.
+    this.term.onResize(({ cols, rows }) => {
+      if (this.ptyTimer !== null) clearTimeout(this.ptyTimer);
+      this.ptyTimer = window.setTimeout(() => {
+        this.ptyTimer = null;
+        if (this.id) void ipc.resize(this.id, cols, rows);
+      }, 90);
+    });
     this.term.onSelectionChange(() => {
       if (this.settings.copyOnSelect && this.term.hasSelection())
         void navigator.clipboard.writeText(this.term.getSelection());
@@ -507,6 +516,10 @@ export class TermSession {
             ? await ipc.openSsh(src.target, src.secret, src.jumpSecret, cols, rows, hl, onData, onEvent)
             : await ipc.openSerial(src.target, hl, onData, onEvent);
       if (this.disposed) void ipc.close(this.id);
+      if (this.pendingHostKey !== null) {
+        void ipc.hostKeyReply(this.id, this.pendingHostKey);
+        this.pendingHostKey = null;
+      }
     } catch (e) {
       this.onEvent({ type: "error", message: String(e) });
       this.onEvent({ type: "exit", code: null });
@@ -566,8 +579,12 @@ export class TermSession {
     else if (h.text.length > 256 * 1024) this.releaseHold(-1);
   }
 
+  /** A host-key answer given before `openSsh` returned our id (fast servers): sent once it does. */
+  private pendingHostKey: boolean | null = null;
+
   replyHostKey(accept: boolean) {
     if (this.id) void ipc.hostKeyReply(this.id, accept);
+    else this.pendingHostKey = accept;
   }
 
   close() {
@@ -632,21 +649,39 @@ export class TermSession {
   }
 
   scheduleFit() {
-    if (this.resizeTimer !== null) clearTimeout(this.resizeTimer);
-    // Debounced: animated layout changes (sidebar, splits) must not refit every frame.
-    this.resizeTimer = window.setTimeout(() => {
-      this.resizeTimer = null;
+    // At most once per frame: panels animating open/closed reflow the text as they move.
+    // (fit() only resizes when the cell grid actually changes.)
+    if (this.fitFrame !== null) return;
+    this.fitFrame = requestAnimationFrame(() => {
+      this.fitFrame = null;
       this.fitNow();
-    }, 40);
+    });
   }
 
   private fitNow() {
     const el = this.host;
     if (!el || el.offsetWidth === 0 || el.offsetHeight === 0) return;
+    const { cols, rows } = this.term;
     try {
       this.fit.fit();
     } catch {
       /* not visible yet */
+    }
+    if (this.term.cols !== cols || this.term.rows !== rows) this.renderNow();
+  }
+
+  /**
+   * Draw the viewport right away. A resize clears the WebGL canvas and xterm only redraws
+   * on the next frame — while a panel animates we resize every frame, so without this the
+   * text would be blank for the whole animation.
+   */
+  private renderNow() {
+    try {
+      // biome-ignore lint/suspicious/noExplicitAny: xterm internals (no public sync render)
+      const rs = (this.term as any)._core?._renderService;
+      rs?._renderRows?.(0, this.term.rows - 1);
+    } catch {
+      /* the next scheduled frame draws it */
     }
   }
 

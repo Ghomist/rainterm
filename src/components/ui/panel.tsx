@@ -28,7 +28,7 @@ export function PanelHeader({
 }
 
 export const iconButtonCls =
-  "flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors duration-100 hover:bg-ov/[0.07] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-30 [&_svg]:size-[15px]";
+  "press flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-ov/[0.07] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-30 [&_svg]:size-[15px]";
 
 export function IconButton({
   tip,

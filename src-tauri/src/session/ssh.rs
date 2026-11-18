@@ -124,25 +124,51 @@ pub struct Conn {
     _jump: Option<Box<Conn>>,
     sftp: OnceCell<Arc<SftpSession>>,
     forwards: parking_lot::Mutex<Vec<JoinHandle<()>>>,
+    /// Forwards added while connected (Ports panel), by local port.
+    runtime_forwards: parking_lot::Mutex<std::collections::HashMap<u16, JoinHandle<()>>>,
 }
 
 impl Conn {
     /// Run a command on its own channel and collect stdout (stderr discarded).
     pub async fn exec(&self, command: &str) -> anyhow::Result<String> {
+        Ok(self.exec_full(command, Duration::from_secs(15)).await?.1)
+    }
+
+    /// Run a one-off command: (exit code, stdout, stderr). -1 if the server sent no status.
+    pub async fn exec_full(&self, command: &str, timeout: Duration) -> anyhow::Result<(i32, String, String)> {
         let mut ch = self.handle.channel_open_session().await?;
         ch.exec(true, command).await?;
-        let mut out = Vec::new();
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+        let (mut out, mut err, mut code) = (Vec::new(), Vec::new(), -1i32);
+        let deadline = tokio::time::Instant::now() + timeout;
         loop {
             match tokio::time::timeout_at(deadline, ch.wait()).await {
                 Ok(Some(russh::ChannelMsg::Data { data })) => out.extend_from_slice(&data),
-                Ok(Some(russh::ChannelMsg::Eof | russh::ChannelMsg::Close)) | Ok(None) => break,
+                Ok(Some(russh::ChannelMsg::ExtendedData { data, .. })) => err.extend_from_slice(&data),
+                Ok(Some(russh::ChannelMsg::ExitStatus { exit_status })) => code = exit_status as i32,
+                Ok(Some(russh::ChannelMsg::Close)) | Ok(None) => break,
                 Ok(Some(_)) => {}
                 Err(_) => anyhow::bail!("remote command timed out"),
             }
         }
         let _ = ch.close().await;
-        Ok(String::from_utf8_lossy(&out).into_owned())
+        Ok((code, String::from_utf8_lossy(&out).into_owned(), String::from_utf8_lossy(&err).into_owned()))
+    }
+
+    /// Start a local forward now (127.0.0.1:local_port → remote_host:remote_port over SSH).
+    /// `local_port` 0 picks a free port. Returns the bound local port.
+    pub async fn add_forward(self: &Arc<Self>, local_port: u16, remote_host: String, remote_port: u16) -> anyhow::Result<u16> {
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", local_port)).await?;
+        let port = listener.local_addr()?.port();
+        let fwd = Forward { local_port: port, remote_host, remote_port };
+        let task = tokio::spawn(serve_forward(listener, Arc::downgrade(self), fwd));
+        if let Some(old) = self.runtime_forwards.lock().insert(port, task) {
+            old.abort();
+        }
+        Ok(port)
+    }
+
+    pub fn stop_forward(&self, local_port: u16) -> bool {
+        self.runtime_forwards.lock().remove(&local_port).map(|t| t.abort()).is_some()
     }
 
     pub async fn sftp(&self) -> anyhow::Result<Arc<SftpSession>> {
@@ -169,34 +195,36 @@ impl Conn {
                     return;
                 }
             };
-            loop {
-                let Ok((mut sock, peer)) = listener.accept().await else { break };
-                let Some(conn) = conn.upgrade() else { break };
-                let fwd = fwd.clone();
-                tokio::spawn(async move {
-                    let ch = conn
-                        .handle
-                        .channel_open_direct_tcpip(
-                            fwd.remote_host,
-                            fwd.remote_port as u32,
-                            peer.ip().to_string(),
-                            peer.port() as u32,
-                        )
-                        .await;
-                    if let Ok(ch) = ch {
-                        let mut stream = ch.into_stream();
-                        let _ = tokio::io::copy_bidirectional(&mut sock, &mut stream).await;
-                    }
-                });
-            }
+            serve_forward(listener, conn, fwd).await;
         });
         self.forwards.lock().push(task);
+    }
+}
+
+async fn serve_forward(listener: tokio::net::TcpListener, conn: std::sync::Weak<Conn>, fwd: Forward) {
+    loop {
+        let Ok((mut sock, peer)) = listener.accept().await else { break };
+        let Some(conn) = conn.upgrade() else { break };
+        let fwd = fwd.clone();
+        tokio::spawn(async move {
+            let ch = conn
+                .handle
+                .channel_open_direct_tcpip(fwd.remote_host, fwd.remote_port as u32, peer.ip().to_string(), peer.port() as u32)
+                .await;
+            if let Ok(ch) = ch {
+                let mut stream = ch.into_stream();
+                let _ = tokio::io::copy_bidirectional(&mut sock, &mut stream).await;
+            }
+        });
     }
 }
 
 impl Drop for Conn {
     fn drop(&mut self) {
         for t in self.forwards.lock().drain(..) {
+            t.abort();
+        }
+        for (_, t) in self.runtime_forwards.lock().drain() {
             t.abort();
         }
     }
@@ -277,7 +305,7 @@ async fn connect(
     };
 
     authenticate(&mut session, target, secret).await?;
-    Ok(Conn { handle: session, _jump: jump, sftp: OnceCell::new(), forwards: Default::default() })
+    Ok(Conn { handle: session, _jump: jump, sftp: OnceCell::new(), forwards: Default::default(), runtime_forwards: Default::default() })
 }
 
 async fn authenticate(

@@ -188,7 +188,7 @@ function SnippetRow({ s, onEdit }: { s: Snippet; onEdit: () => void }) {
                   e.stopPropagation();
                   fire(!s.run);
                 }}
-                className="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-ov/10 hover:text-foreground [&_svg]:size-3.5"
+                className="press flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-ov/10 hover:text-foreground [&_svg]:size-3.5"
               >
                 {s.run ? <TextCursorInput /> : <Play />}
               </button>
@@ -200,7 +200,7 @@ function SnippetRow({ s, onEdit }: { s: Snippet; onEdit: () => void }) {
                   e.stopPropagation();
                   onEdit();
                 }}
-                className="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-ov/10 hover:text-foreground [&_svg]:size-3.5"
+                className="press flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-ov/10 hover:text-foreground [&_svg]:size-3.5"
               >
                 <Pencil />
               </button>

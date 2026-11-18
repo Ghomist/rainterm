@@ -1,5 +1,6 @@
 mod commands;
 mod files;
+mod ops;
 mod highlight;
 mod history;
 mod monitor;
@@ -195,6 +196,37 @@ async fn process_kill(sessions: S<'_>, session_id: Option<String>, pid: u32, for
 }
 
 #[tauri::command]
+async fn ports_list(sessions: S<'_>, session_id: Option<String>) -> CmdResult<Vec<ops::PortEntry>> {
+    match session_id {
+        Some(id) => ops::ports_remote(&sessions, &id).await,
+        None => tauri::async_runtime::spawn_blocking(ops::ports_local).await.map_err(anyhow::Error::from).and_then(|r| r),
+    }
+    .map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+async fn ops_run(sessions: S<'_>, session_id: Option<String>, tool: String, args: Vec<String>) -> CmdResult<ops::RunOutput> {
+    ops::run(&sessions, session_id.as_deref(), &tool, &args).await.map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+async fn ssh_forward_add(
+    sessions: S<'_>,
+    session_id: String,
+    local_port: u16,
+    remote_host: String,
+    remote_port: u16,
+) -> CmdResult<u16> {
+    let conn = sessions.ssh(&session_id)?;
+    conn.add_forward(local_port, remote_host, remote_port).await.map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+fn ssh_forward_stop(sessions: S<'_>, session_id: String, local_port: u16) -> CmdResult<bool> {
+    Ok(sessions.ssh(&session_id)?.stop_forward(local_port))
+}
+
+#[tauri::command]
 fn monitor_forget(session_id: String) {
     monitor::forget(&session_id);
 }
@@ -387,6 +419,10 @@ pub fn run() {
             history_local,
             commands_local,
             commands_remote,
+            ports_list,
+            ops_run,
+            ssh_forward_add,
+            ssh_forward_stop,
             monitor_local,
             monitor_remote,
             monitor_forget,

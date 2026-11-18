@@ -68,7 +68,7 @@ export function MonitorPanel() {
   const current = tabs.some((t) => t.id === tab) ? tab : "overview";
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="@container flex min-h-0 flex-1 flex-col">
       <PanelHeader title="Monitor" icon={<Activity />}>
         {snap && <span className="pr-1.5 text-[11px] text-muted-foreground">up {fmtUptime(snap.uptime)}</span>}
       </PanelHeader>
@@ -111,9 +111,10 @@ export function MonitorPanel() {
                       transition={{ type: "spring", stiffness: 500, damping: 40 }}
                     />
                   )}
+                  {/* Narrow panel: only the selected tab keeps its label. */}
                   <span className="relative flex items-center gap-1">
                     {t.icon}
-                    {t.label}
+                    <span className={cn(current !== t.id && "hidden @[340px]:inline")}>{t.label}</span>
                   </span>
                 </button>
               ))}

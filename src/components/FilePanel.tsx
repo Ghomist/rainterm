@@ -62,72 +62,10 @@ import { cancelJob, clearFinished, download, fmtEta, fmtSize, upload, useTransfe
 import { POSIX_INTEGRATION } from "@/lib/shell-integration";
 import { cn } from "@/lib/utils";
 import { type Pane, useActivePane, useApp } from "@/store/app";
-import { MonitorPanel } from "./MonitorPanel";
-import { SnippetsPanel } from "./SnippetsPanel";
 
-// ------------------------------------------------------------------ panel shell
+// ------------------------------------------------------------------ files view
 
-export function FilePanel() {
-  const filesOpen = useApp((s) => s.filesOpen);
-  const monitorOpen = useApp((s) => s.monitorOpen);
-  const snippetsOpen = useApp((s) => s.snippetsOpen);
-  const open = filesOpen || monitorOpen || snippetsOpen;
-  const which = filesOpen ? "files" : monitorOpen ? "monitor" : "snippets";
-  const width = useApp((s) => s.settings.filesWidth);
-  const [live, setLive] = useState<number | null>(null);
-  const w = live ?? width;
-
-  const onResize = (e: React.PointerEvent) => {
-    e.preventDefault();
-    const startX = e.clientX;
-    const start = w;
-    let last = start;
-    const move = (ev: PointerEvent) => {
-      last = Math.min(720, Math.max(240, start - (ev.clientX - startX)));
-      setLive(last);
-    };
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-      setLive(null);
-      void useApp.getState().updateSettings({ filesWidth: Math.round(last) });
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-  };
-
-  return (
-    <motion.aside
-      initial={false}
-      animate={{ width: open ? w : 0, opacity: open ? 1 : 0 }}
-      transition={live !== null ? { duration: 0 } : { type: "spring", stiffness: 420, damping: 42 }}
-      className="relative shrink-0 overflow-hidden bg-chrome"
-    >
-      <div
-        onPointerDown={onResize}
-        className="absolute inset-y-0 left-0 z-20 w-1.5 cursor-col-resize transition-colors hover:bg-primary/40"
-      />
-      <div style={{ width: w }} className="relative h-full">
-        <AnimatePresence initial={false} mode="popLayout">
-          {open && (
-            <motion.div
-              key={which}
-              initial={{ opacity: 0, x: 12 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -12 }}
-              transition={{ duration: 0.18, ease: [0.2, 0.8, 0.2, 1] }}
-              className="absolute inset-0 flex flex-col"
-            >
-              {which === "files" ? <PanelBody /> : which === "monitor" ? <MonitorPanel /> : <SnippetsPanel />}
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-    </motion.aside>
-  );
-}
-
-function PanelBody() {
+export function FilesView() {
   const pane = useActivePane();
   const sessionId = pane?.session.sessionId ?? null;
   const target: FsTarget | null = useMemo(() => {

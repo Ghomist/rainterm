@@ -10,7 +10,16 @@ import {
   type SshTarget,
 } from "@/lib/ipc";
 import { loadHistory } from "@/lib/history";
-import { DEFAULT_SETTINGS, resolveTheme, type Settings, sha256Hex } from "@/lib/settings";
+import {
+  DEFAULT_DOCK,
+  DEFAULT_SETTINGS,
+  type DockSide,
+  normalizeDock,
+  resolveTheme,
+  type Settings,
+  sha256Hex,
+  type ViewId,
+} from "@/lib/settings";
 import { type SessionSource, TermSession } from "@/lib/term-session";
 
 // ------------------------------------------------------------------ model
@@ -138,10 +147,8 @@ interface AppState {
   tabs: Tab[];
   activeTabId: string | null;
 
-  sidebarOpen: boolean;
-  filesOpen: boolean;
-  monitorOpen: boolean;
-  snippetsOpen: boolean;
+  /** Ctrl+Shift+B: both side panels hidden (rails stay). */
+  panelsHidden: boolean;
   paletteOpen: boolean;
   settingsOpen: boolean;
   searchOpen: boolean;
@@ -189,8 +196,12 @@ interface AppState {
   unlock(password: string): Promise<boolean>;
 
   setSystemDark(dark: boolean): void;
-  /** Right dock shows one panel at a time: files, the resource monitor or quick commands. */
-  toggleDock(which: "files" | "monitor" | "snippets"): void;
+  /** Show a tool view in its dock, or close that dock's panel if the view is already showing. */
+  toggleView(id: ViewId, show?: boolean): void;
+  /** Move a view to a dock (optionally at an index in its rail). */
+  moveView(id: ViewId, side: DockSide, index?: number): void;
+  resetDock(): void;
+  togglePanels(): void;
   /** Flush the session snapshot to disk right away (e.g. before the window closes). */
   saveSessionNow(): Promise<void>;
   set(patch: Partial<AppState>): void;
@@ -581,10 +592,7 @@ export const useApp = create<AppState>((set, get) => {
     panes: {},
     tabs: [],
     activeTabId: null,
-    sidebarOpen: true,
-    filesOpen: false,
-    monitorOpen: false,
-    snippetsOpen: false,
+    panelsHidden: false,
     paletteOpen: false,
     settingsOpen: false,
     searchOpen: false,
@@ -607,6 +615,10 @@ export const useApp = create<AppState>((set, get) => {
       ]);
       await loadHistory();
       const merged: Settings = { ...DEFAULT_SETTINGS, ...(settings ?? {}) };
+      merged.dock = normalizeDock(settings?.dock);
+      // The right dock's width used to be `filesWidth`.
+      const legacy = (settings as { filesWidth?: number } | null)?.filesWidth;
+      if (settings && !("rightWidth" in settings) && legacy) merged.rightWidth = legacy;
       // Hover-switch delays from older versions that are no longer offered.
       if (![0, 150, 300, 500, 800, 1000].includes(merged.tabHoverSwitchMs)) merged.tabHoverSwitchMs = 300;
       // Older configs only had `theme`.
@@ -972,10 +984,41 @@ export const useApp = create<AppState>((set, get) => {
       return saveSessionNow();
     },
 
-    toggleDock(which) {
+    toggleView(id, show) {
       const s = get();
-      const key = `${which}Open` as const;
-      set({ filesOpen: false, monitorOpen: false, snippetsOpen: false, [key]: !s[key] });
+      const side: DockSide = s.settings.dock.left.includes(id) ? "left" : "right";
+      const key = side === "left" ? "leftView" : "rightView";
+      const visible = s.settings[key] === id && !s.panelsHidden;
+      const open = show ?? !visible;
+      if (s.panelsHidden && open) set({ panelsHidden: false });
+      if (open !== visible || s.settings[key] !== id) void s.updateSettings({ [key]: open ? id : null });
+    },
+
+    moveView(id, side, index) {
+      const s = get().settings;
+      const dock = { left: s.dock.left.filter((v) => v !== id), right: s.dock.right.filter((v) => v !== id) };
+      const list = dock[side];
+      list.splice(index === undefined ? list.length : Math.max(0, Math.min(index, list.length)), 0, id);
+      const from: DockSide = s.dock.left.includes(id) ? "left" : "right";
+      const patch: Partial<Settings> = { dock };
+      if (from !== side) {
+        // Showing on the old side → keep it showing on the new side.
+        const fromKey = from === "left" ? "leftView" : "rightView";
+        const toKey = side === "left" ? "leftView" : "rightView";
+        if (s[fromKey] === id) {
+          patch[fromKey] = null;
+          patch[toKey] = id;
+        }
+      }
+      void get().updateSettings(patch);
+    },
+
+    resetDock() {
+      void get().updateSettings({ dock: DEFAULT_DOCK, leftView: "sessions", rightView: null });
+    },
+
+    togglePanels() {
+      set({ panelsHidden: !get().panelsHidden });
     },
 
     setSystemDark(dark) {
@@ -995,6 +1038,12 @@ export const useThemeId = () => useApp((s) => resolveTheme(s.settings, s.systemD
 
 export const useActiveTab = () =>
   useApp((s) => s.tabs.find((t) => t.id === s.activeTabId) ?? null);
+
+/** The view is showing in its dock right now. */
+export function isViewOpen(s: Pick<AppState, "settings" | "panelsHidden">, id: ViewId) {
+  if (s.panelsHidden) return false;
+  return (s.settings.dock.left.includes(id) ? s.settings.leftView : s.settings.rightView) === id;
+}
 
 export const useActivePane = () =>
   useApp((s) => {

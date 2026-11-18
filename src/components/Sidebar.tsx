@@ -44,24 +44,7 @@ import { confirm, prompt, toast } from "@/lib/overlay";
 import { cn } from "@/lib/utils";
 import { allGroups, type Profile, useApp } from "@/store/app";
 
-export const SIDEBAR_WIDTH = 248;
 const QUICK = /^(?:ssh\s+)?(?:[^@\s]+@)?[^:\s@]+(?::\d+)?$/;
-
-export function Sidebar() {
-  const open = useApp((s) => s.sidebarOpen);
-  return (
-    <motion.aside
-      initial={false}
-      animate={{ width: open ? SIDEBAR_WIDTH : 0, opacity: open ? 1 : 0 }}
-      transition={{ type: "spring", stiffness: 420, damping: 42 }}
-      className="shrink-0 overflow-hidden bg-chrome"
-    >
-      <div style={{ width: SIDEBAR_WIDTH }} className="flex h-full flex-col">
-        <SidebarContent />
-      </div>
-    </motion.aside>
-  );
-}
 
 export async function importSshConfig() {
   try {
@@ -131,7 +114,7 @@ function useProfileDrag() {
 
 // ------------------------------------------------------------------ content
 
-function SidebarContent() {
+export function SessionsView() {
   const shells = useApp((s) => s.shells);
   const profiles = useApp((s) => s.profiles);
   const groupOrder = useApp((s) => s.settings.profileGroups);
@@ -471,7 +454,7 @@ function ProfileGroup({
                     <button
                       type="button"
                       onClick={() => set({ profileEditor: { kind: "ssh", group } })}
-                      className="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-ov/10 hover:text-foreground [&_svg]:size-3.5"
+                      className="press flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-ov/10 hover:text-foreground [&_svg]:size-3.5"
                     >
                       <Plus />
                     </button>
@@ -480,7 +463,7 @@ function ProfileGroup({
                     <DropdownMenuTrigger asChild>
                       <button
                         type="button"
-                        className="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-ov/10 hover:text-foreground data-[state=open]:bg-ov/10 [&_svg]:size-3.5"
+                        className="press flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-ov/10 hover:text-foreground data-[state=open]:bg-ov/10 [&_svg]:size-3.5"
                       >
                         <MoreHorizontal />
                       </button>
@@ -551,7 +534,7 @@ function Row({
             e.stopPropagation();
             onOpen();
           }}
-          className="-mr-1 hidden size-5 shrink-0 items-center justify-center rounded text-muted-foreground transition hover:bg-primary/15 hover:text-primary group-hover:flex"
+          className="press -mr-1 hidden size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-primary/15 hover:text-primary group-hover:flex"
         >
           <ArrowRight className="size-3.5" />
         </button>

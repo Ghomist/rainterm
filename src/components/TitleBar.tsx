@@ -1,6 +1,5 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
-  Activity,
   Cable,
   ChevronDown,
   Columns2,
@@ -8,18 +7,14 @@ import {
   CopyPlus,
   Pencil,
   XSquare,
-  FolderTree,
   Minus,
-  PanelLeft,
   Plus,
   Radio,
   Rows2,
   Server,
-  Settings2,
   Square,
   SquareTerminal,
   X,
-  Zap,
 } from "lucide-react";
 import { AnimatePresence, motion, Reorder } from "motion/react";
 import { useEffect, useRef, useState } from "react";
@@ -52,7 +47,6 @@ const spring = { type: "spring", stiffness: 520, damping: 38, mass: 0.7 } as con
 export function TitleBar() {
   const tabs = useApp((s) => s.tabs);
   const set = useApp((s) => s.set);
-  const sidebarOpen = useApp((s) => s.sidebarOpen);
   const stripRef = useRef<HTMLDivElement>(null);
   const [fade, setFade] = useState({ left: false, right: false });
 
@@ -97,17 +91,6 @@ export function TitleBar() {
         isMac ? "pl-[78px]" : "pl-1.5",
       )}
     >
-      <Tooltip content="Toggle sidebar" shortcut="sidebar">
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className={cn("text-muted-foreground", sidebarOpen && "text-foreground")}
-          onClick={() => set({ sidebarOpen: !sidebarOpen })}
-        >
-          <PanelLeft />
-        </Button>
-      </Tooltip>
-
       <Reorder.Group
         as="div"
         axis="x"
@@ -329,61 +312,9 @@ function NewTabButton() {
 }
 
 function RightTools() {
-  const set = useApp((s) => s.set);
-  const filesOpen = useApp((s) => s.filesOpen);
-  const monitorOpen = useApp((s) => s.monitorOpen);
-  const snippetsOpen = useApp((s) => s.snippetsOpen);
-  const toggleDock = useApp((s) => s.toggleDock);
-  const splitActive = useApp((s) => s.splitActive);
-  const btn = "text-muted-foreground";
   return (
     <div className="mr-1 flex shrink-0 items-center gap-0.5">
-      <Tooltip content="Split right" shortcut="splitRight">
-        <Button variant="ghost" size="icon-sm" className={btn} onClick={() => splitActive("row")}>
-          <Columns2 />
-        </Button>
-      </Tooltip>
-      <Tooltip content="Split down" shortcut="splitDown">
-        <Button variant="ghost" size="icon-sm" className={btn} onClick={() => splitActive("col")}>
-          <Rows2 />
-        </Button>
-      </Tooltip>
       <BroadcastMenu />
-      <Tooltip content="Files" shortcut="files">
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className={cn(btn, filesOpen && "bg-primary/12 text-primary hover:bg-primary/20 hover:text-primary")}
-          onClick={() => toggleDock("files")}
-        >
-          <FolderTree />
-        </Button>
-      </Tooltip>
-      <Tooltip content="Resource monitor" shortcut="monitor">
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className={cn(btn, monitorOpen && "bg-primary/12 text-primary hover:bg-primary/20 hover:text-primary")}
-          onClick={() => toggleDock("monitor")}
-        >
-          <Activity />
-        </Button>
-      </Tooltip>
-      <Tooltip content="Quick commands" shortcut="snippets">
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className={cn(btn, snippetsOpen && "bg-primary/12 text-primary hover:bg-primary/20 hover:text-primary")}
-          onClick={() => toggleDock("snippets")}
-        >
-          <Zap />
-        </Button>
-      </Tooltip>
-      <Tooltip content="Settings" shortcut="settings">
-        <Button variant="ghost" size="icon-sm" className={btn} onClick={() => set({ settingsOpen: true })}>
-          <Settings2 />
-        </Button>
-      </Tooltip>
     </div>
   );
 }

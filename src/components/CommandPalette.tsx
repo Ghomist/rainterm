@@ -24,6 +24,9 @@ import {
   UnfoldVertical,
   X,
   Zap,
+  Network,
+  Boxes,
+  Ship,
 } from "lucide-react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { useEffect, useState } from "react";
@@ -215,17 +218,26 @@ export function CommandPalette() {
                 <Item value="broadcast input sync" onSelect={() => run(() => st.toggleBroadcast())}>
                   <Radio /> Toggle broadcast input <Keys id="broadcast" />
                 </Item>
-                <Item value="resource monitor cpu memory disk gpu processes" onSelect={() => run(() => st.toggleDock("monitor"))}>
+                <Item value="resource monitor cpu memory disk gpu processes" onSelect={() => run(() => st.toggleView("monitor"))}>
                   <Activity /> Toggle resource monitor <Keys id="monitor" />
                 </Item>
-                <Item value="quick commands snippets" onSelect={() => run(() => st.toggleDock("snippets"))}>
+                <Item value="quick commands snippets" onSelect={() => run(() => st.toggleView("snippets"))}>
                   <Zap /> Toggle quick commands <Keys id="snippets" />
                 </Item>
-                <Item value="toggle files sftp" onSelect={() => run(() => st.toggleDock("files"))}>
+                <Item value="toggle files sftp" onSelect={() => run(() => st.toggleView("files"))}>
                   <FolderTree /> Toggle file panel <Keys id="files" />
                 </Item>
-                <Item value="toggle sidebar" onSelect={() => run(() => set({ sidebarOpen: !st.sidebarOpen }))}>
-                  <PanelLeft /> Toggle sidebar <Keys id="sidebar" />
+                <Item value="toggle hide show side panels sidebar" onSelect={() => run(() => st.togglePanels())}>
+                  <PanelLeft /> Hide / show side panels <Keys id="sidebar" />
+                </Item>
+                <Item value="ports listening network forward" onSelect={() => run(() => st.toggleView("ports", true))}>
+                  <Network /> Ports <Keys id="ports" />
+                </Item>
+                <Item value="containers docker podman" onSelect={() => run(() => st.toggleView("containers", true))}>
+                  <Boxes /> Containers <Keys id="containers" />
+                </Item>
+                <Item value="kubernetes k8s kubectl pods" onSelect={() => run(() => st.toggleView("k8s", true))}>
+                  <Ship /> Kubernetes <Keys id="k8s" />
                 </Item>
                 <Item
                   value="toggle line numbers"

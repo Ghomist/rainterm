@@ -205,3 +205,38 @@ html.light[data-effects="on"] {
   -webkit-app-region: no-drag;
   app-region: no-drag;
 }
+
+/* Side rail icons: no backgrounds — the icon itself lights up. Hover glows in the text
+   color, the selected view in the accent color. */
+.rail-btn svg {
+  transition:
+    filter 0.22s ease,
+    color 0.15s ease,
+    transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.rail-btn:hover svg {
+  color: var(--foreground);
+  transform: scale(1.08);
+  filter: drop-shadow(0 0 5px color-mix(in oklab, var(--foreground) 45%, transparent));
+}
+.rail-btn[data-active="true"] svg {
+  color: var(--primary);
+  filter: drop-shadow(0 0 6px color-mix(in oklab, var(--primary) 75%, transparent));
+}
+.rail-btn[data-active="true"]:hover svg {
+  filter: drop-shadow(0 0 9px color-mix(in oklab, var(--primary) 90%, transparent));
+}
+.rail-btn:active svg {
+  transform: scale(0.86);
+  transition-duration: 0.08s;
+}
+
+/* Tactile press for small icon buttons across the app. */
+.press {
+  transition-property: color, background-color, opacity, transform;
+  transition-duration: 0.12s;
+}
+.press:active:not(:disabled) {
+  transform: scale(0.88);
+  transition-duration: 0.06s;
+}

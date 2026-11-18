@@ -27,4 +27,6 @@ const FISH =
   ' functions -q __rt_orig_prompt; or functions -c fish_prompt __rt_orig_prompt;' +
   ' function fish_prompt; __rt_orig_prompt; printf "\\e]133;B\\a"; end\'';
 
-export const POSIX_INTEGRATION = ` ${BASH_ZSH}; ${FISH}`;
+// Trailing `true`: the hook line itself must not leave a failure status behind (fish shows it
+// in the right prompt; bash/zsh would mark the first block failed).
+export const POSIX_INTEGRATION = ` ${BASH_ZSH}; ${FISH}; true`;

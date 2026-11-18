@@ -443,7 +443,7 @@ function HeaderBtn({
         type="button"
         onClick={onClick}
         className={cn(
-          "flex size-5 items-center justify-center rounded transition [&_svg]:size-3.5",
+          "press flex size-5 items-center justify-center rounded [&_svg]:size-3.5",
           danger
             ? "text-muted-foreground hover:bg-destructive/15 hover:text-destructive"
             : "text-muted-foreground hover:bg-ov/10 hover:text-foreground",
