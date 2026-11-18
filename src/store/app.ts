@@ -7,6 +7,7 @@ import {
   type SessionEvent,
   type ShellSpec,
   type SshAuth,
+  type ProxySpec,
   type SshTarget,
 } from "@/lib/ipc";
 import { loadHistory } from "@/lib/history";
@@ -42,6 +43,8 @@ export interface SshProfile extends ProfileBase {
   forwards: Forward[];
   /** Save the password / passphrase in the OS keychain. */
   remember?: boolean;
+  /** Proxy: a saved proxy's id, "direct" for none, or empty/null for the global default. */
+  proxy?: string | null;
 }
 
 export interface SerialProfile extends ProfileBase {
@@ -134,6 +137,8 @@ export interface SecretPrompt {
   message: string;
   label: string;
   canRemember: boolean;
+  /** The secret is already in the keychain (it was wrong): default to updating it. */
+  remembered?: boolean;
 }
 
 interface AppState {
@@ -243,6 +248,7 @@ function migrateProfile(p: Record<string, unknown>): Profile {
 }
 
 const secretKey = (profileId: string) => `ssh:${profileId}`;
+export const proxySecretKey = (proxyId: string) => `proxy:${proxyId}`;
 
 // ------------------------------------------------------------------ store
 
@@ -306,6 +312,7 @@ export const useApp = create<AppState>((set, get) => {
         const jumpProfile =
           profile?.kind === "ssh" ? get().profiles.find((p) => p.id === profile.jumpId) : undefined;
         const isJump = ev.kind.startsWith("jump");
+        const owner = isJump ? jumpProfile : profile;
         const target =
           src.kind === "ssh" ? (isJump ? (src.target.jump ?? src.target) : src.target) : null;
         patchPane(paneId, { awaitingSecret: true });
@@ -314,7 +321,8 @@ export const useApp = create<AppState>((set, get) => {
           kind: ev.kind,
           message: ev.message,
           label: target ? `${target.user}@${target.host}` : pane.subtitle,
-          canRemember: !!(isJump ? jumpProfile : profile),
+          canRemember: !!owner,
+          remembered: owner?.kind === "ssh" && !!owner.remember,
         });
         break;
       }
@@ -425,18 +433,31 @@ export const useApp = create<AppState>((set, get) => {
     }
   };
 
-  const toTarget = (p: SshProfile, depth = 0): SshTarget => {
+  /** A profile's proxy choice → what the backend dials (password read from the keychain). */
+  const resolveProxy = async (ref: string | null | undefined): Promise<ProxySpec | null> => {
+    const s = get().settings;
+    const id = ref === "direct" ? null : ref || s.globalProxy;
+    const def = id ? s.proxies.find((x) => x.id === id) : undefined;
+    if (!def) return null;
+    const password = def.hasPassword ? await ipc.secretGet(proxySecretKey(def.id)).catch(() => null) : null;
+    return { kind: def.kind, host: def.host, port: def.port, user: def.user || null, password };
+  };
+
+  const toTarget = async (p: SshProfile, depth = 0): Promise<SshTarget> => {
     const jumpProfile = p.jumpId ? get().profiles.find((x) => x.id === p.jumpId) : undefined;
+    const jump =
+      jumpProfile?.kind === "ssh" && jumpProfile.id !== p.id && depth < 3
+        ? { ...(await toTarget(jumpProfile, depth + 1)), forwards: [] }
+        : null;
     return {
       host: p.host,
       port: p.port,
       user: p.user,
       auth: p.auth,
       forwards: p.forwards ?? [],
-      jump:
-        jumpProfile?.kind === "ssh" && jumpProfile.id !== p.id && depth < 3
-          ? { ...toTarget(jumpProfile, depth + 1), forwards: [] }
-          : null,
+      jump,
+      // Through a jump host only the first hop dials out, so only it uses a proxy.
+      proxy: jump ? null : await resolveProxy(p.proxy),
     };
   };
 
@@ -450,7 +471,7 @@ export const useApp = create<AppState>((set, get) => {
         profile.id,
       );
     }
-    const target = toTarget(profile);
+    const target = await toTarget(profile);
     const jumpProfile = profile.jumpId ? get().profiles.find((p) => p.id === profile.jumpId) : undefined;
     const secret = profile.remember ? await ipc.secretGet(secretKey(profile.id)).catch(() => null) : null;
     const jumpSecret =
@@ -474,7 +495,7 @@ export const useApp = create<AppState>((set, get) => {
     // Never persist secrets: profiles re-read the keychain, quick connects re-prompt.
     return pane.profileId
       ? { kind: "ssh", profileId: pane.profileId }
-      : { kind: "ssh", target: src.target, title: pane.title, subtitle: pane.subtitle };
+      : { kind: "ssh", target: { ...src.target, proxy: null }, title: pane.title, subtitle: pane.subtitle };
   };
 
   const saveLayout = (l: Layout): SavedLayout | null => {
@@ -511,7 +532,7 @@ export const useApp = create<AppState>((set, get) => {
     if (profile) return paneForProfile(profile);
     if (src.kind === "ssh" && "target" in src)
       return makePane(
-        { kind: "ssh", target: src.target, secret: null, jumpSecret: null },
+        { kind: "ssh", target: { ...src.target, proxy: await resolveProxy(null) }, secret: null, jumpSecret: null },
         src.title ?? src.target.host,
         src.subtitle ?? src.target.host,
       );
@@ -656,20 +677,23 @@ export const useApp = create<AppState>((set, get) => {
       const m = spec.trim().match(/^(?:ssh\s+)?(?:([^@\s]+)@)?([^:\s]+)(?::(\d+))?$/);
       if (!m) return;
       const [, user = "root", host, port = "22"] = m;
-      const target: SshTarget = {
-        host,
-        port: Number(port),
-        user,
-        auth: { kind: "auto" },
-        forwards: [],
-      };
-      place(
-        makePane(
-          { kind: "ssh", target, secret: null, jumpSecret: null },
+      void resolveProxy(null).then((proxy) => {
+        const target: SshTarget = {
           host,
-          `${user}@${host}${port === "22" ? "" : `:${port}`}`,
-        ),
-      );
+          port: Number(port),
+          user,
+          auth: { kind: "auto" },
+          forwards: [],
+          proxy,
+        };
+        place(
+          makePane(
+            { kind: "ssh", target, secret: null, jumpSecret: null },
+            host,
+            `${user}@${host}${port === "22" ? "" : `:${port}`}`,
+          ),
+        );
+      });
     },
 
     reconnect(paneId) {
@@ -793,15 +817,15 @@ export const useApp = create<AppState>((set, get) => {
       const isJump = prompt.kind.startsWith("jump");
       if (isJump) src.jumpSecret = secret;
       else src.secret = secret;
-      if (remember) {
-        const profile = get().profiles.find((p) => p.id === pane.profileId);
-        const owner = isJump && profile?.kind === "ssh" ? profile.jumpId : profile?.id;
-        if (owner) {
-          await ipc.secretSet(secretKey(owner), secret).catch(() => {});
-          const target = get().profiles.find((p) => p.id === owner);
-          if (target?.kind === "ssh" && !target.remember)
-            await get().saveProfile({ ...target, remember: true });
-        }
+      const profile = get().profiles.find((p) => p.id === pane.profileId);
+      const owner = isJump && profile?.kind === "ssh" ? profile.jumpId : profile?.id;
+      const target = owner ? get().profiles.find((p) => p.id === owner) : undefined;
+      if (remember && owner) {
+        await ipc.secretSet(secretKey(owner), secret).catch(() => {});
+        if (target?.kind === "ssh" && !target.remember) await get().saveProfile({ ...target, remember: true });
+      } else if (!remember && target?.kind === "ssh" && target.remember) {
+        // Unticked a saved (and evidently wrong) secret: forget it.
+        await get().saveProfile({ ...target, remember: false });
       }
       get().reconnect(pane.id);
     },

@@ -1,6 +1,6 @@
 // Line-number + fold gutter for one terminal (WindTerm style).
 import { ChevronDown, ChevronRight, ClipboardCopy, FoldVertical, UnfoldVertical } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -31,7 +31,18 @@ export function gutterWidth(session: TermSession, lineNumbers: boolean) {
   return Math.max(3, String(total).length) * 7.4 + 24;
 }
 
-export function Gutter({
+const sameRow = (a: Row, b: Row) =>
+  a.key === b.key &&
+  a.abs === b.abs &&
+  a.num === b.num &&
+  a.block === b.block &&
+  a.folded === b.folded &&
+  a.failed === b.failed &&
+  a.canFold === b.canFold;
+
+// Memoized (and so are its rows): it re-renders on terminal output / scroll only when the
+// visible numbers actually change, and not at all when the surrounding layout re-renders.
+export const Gutter = memo(function Gutter({
   session,
   lineNumbers,
   width,
@@ -83,7 +94,7 @@ export function Gutter({
           failed: !!b && b.exitCode !== null && b.exitCode !== 0,
         });
       }
-      setRows(next);
+      setRows((prev) => (prev.length === next.length && prev.every((r, i) => sameRow(r, next[i])) ? prev : next));
     };
     const schedule = () => {
       if (!raf) raf = requestAnimationFrame(compute);
@@ -125,6 +136,14 @@ export function Gutter({
   };
 
   const blocks = session.blocks;
+  const onHover = useCallback((block: number) => setHover(block >= 0 ? block : null), []);
+  const onToggle = useCallback(
+    (block: number) => {
+      session.blocks.toggle(block);
+      session.focus();
+    },
+    [session],
+  );
 
   return (
     <>
@@ -144,49 +163,16 @@ export function Gutter({
             style={{ width }}
           >
             {rows.map((row) => (
-              <div
+              <GutterRow
                 key={row.key}
-                onMouseEnter={() => setHover(row.block >= 0 ? row.block : null)}
-                className={cn(
-                  "absolute right-0 left-0 flex items-center justify-end pr-1",
-                  row.failed
-                    ? "text-destructive"
-                    : row.block >= 0
-                      ? "text-primary/80"
-                      : "text-muted-foreground/45",
-                )}
-                style={{ top: geom.top + row.key * geom.cell, height: geom.cell }}
-              >
-                {lineNumbers && (
-                  <Tooltip
-                    content={row.failed ? `Exit code ${session.blocks.list[row.block]?.exitCode}` : null}
-                    side="right"
-                  >
-                    <span className="truncate">{row.num ?? ""}</span>
-                  </Tooltip>
-                )}
-                <button
-                  type="button"
-                  tabIndex={-1}
-                  disabled={!row.canFold}
-                  onClick={() => {
-                    blocks.toggle(row.block);
-                    session.focus();
-                  }}
-                  className={cn(
-                    "ml-0.5 flex size-3.5 shrink-0 items-center justify-center rounded-sm transition",
-                    row.canFold
-                      ? "text-muted-foreground hover:bg-ov/10 hover:text-foreground"
-                      : "invisible",
-                  )}
-                >
-                  {row.folded ? (
-                    <ChevronRight className="size-3" />
-                  ) : (
-                    <ChevronDown className="size-3 opacity-60" />
-                  )}
-                </button>
-              </div>
+                row={row}
+                top={geom.top + row.key * geom.cell}
+                cell={geom.cell}
+                lineNumbers={lineNumbers}
+                exitCode={row.failed ? (blocks.list[row.block]?.exitCode ?? null) : null}
+                onHover={onHover}
+                onToggle={onToggle}
+              />
             ))}
           </div>
         </ContextMenuTrigger>
@@ -225,7 +211,7 @@ export function Gutter({
             type="button"
             key={`fold-${r.abs}`}
             onClick={() => blocks.toggle(r.block)}
-            className="absolute right-4 z-[20] flex items-center gap-1 rounded-full border border-primary/25 bg-primary/10 px-2 text-[10.5px] text-primary backdrop-blur transition hover:bg-primary/20"
+            className="absolute right-4 z-[20] flex items-center gap-1 rounded-full border border-primary/25 bg-[color-mix(in_oklab,var(--primary)_14%,var(--surface))] px-2 text-[10.5px] text-primary transition hover:bg-[color-mix(in_oklab,var(--primary)_24%,var(--surface))]"
             style={{ top: geom.top + r.key * geom.cell + 1, height: geom.cell - 2 }}
           >
             <UnfoldVertical className="size-3" />
@@ -234,4 +220,55 @@ export function Gutter({
         ))}
     </>
   );
-}
+});
+
+const GutterRow = memo(function GutterRow({
+  row,
+  top,
+  cell,
+  lineNumbers,
+  exitCode,
+  onHover,
+  onToggle,
+}: {
+  row: Row;
+  top: number;
+  cell: number;
+  lineNumbers: boolean;
+  exitCode: number | null;
+  onHover: (block: number) => void;
+  onToggle: (block: number) => void;
+}) {
+  const num = <span className="truncate">{row.num ?? ""}</span>;
+  return (
+    <div
+      onMouseEnter={() => onHover(row.block)}
+      className={cn(
+        "absolute right-0 left-0 flex items-center justify-end pr-1",
+        row.failed ? "text-destructive" : row.block >= 0 ? "text-primary/80" : "text-muted-foreground/45",
+      )}
+      style={{ top, height: cell }}
+    >
+      {lineNumbers &&
+        (row.failed ? (
+          <Tooltip content={`Exit code ${exitCode}`} side="right">
+            {num}
+          </Tooltip>
+        ) : (
+          num
+        ))}
+      {row.canFold ? (
+        <button
+          type="button"
+          tabIndex={-1}
+          onClick={() => onToggle(row.block)}
+          className="ml-0.5 flex size-3.5 shrink-0 items-center justify-center rounded-sm text-muted-foreground transition hover:bg-ov/10 hover:text-foreground"
+        >
+          {row.folded ? <ChevronRight className="size-3" /> : <ChevronDown className="size-3 opacity-60" />}
+        </button>
+      ) : (
+        <span className="ml-0.5 size-3.5 shrink-0" />
+      )}
+    </div>
+  );
+});

@@ -5,6 +5,7 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { isViewOpen, groupById, useActivePane, useApp } from "@/store/app";
 import { useActiveMachine } from "./MonitorPanel";
+import { Latency } from "./Latency";
 import { StatusDot } from "./StatusDot";
 
 const label = {
@@ -41,6 +42,7 @@ export function StatusBar() {
             {label[pane.status]}
           </span>
           <span className="truncate px-1">{pane.subtitle}</span>
+          <Latency pane={pane} className="px-1" />
           {broadcast !== "off" && (
             <button type="button" className={cn(item, "text-warning")} onClick={toggleBroadcast}>
               <Radio /> Broadcasting to {broadcast === "tab" ? "this tab" : "all terminals"}

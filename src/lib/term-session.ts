@@ -2,6 +2,7 @@
 // serial). It lives outside React so panes can be re-rendered / re-parented without
 // losing state.
 
+import { afterLayoutAnimation, layoutAnimating } from "./layout-anim";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
@@ -60,6 +61,15 @@ export type SessionSource =
 const ACK_BATCH = 64 * 1024;
 const ACK_IDLE_MS = 16;
 
+/** Over a background the terminal canvas is blended into the glass (multiply on light
+ *  themes, screen on dark; see index.css). A white / black background is the identity for
+ *  those blends, so the glass shows its true color and only the text is laid on top. */
+function termTheme(s: Settings) {
+  const def = themeById(s.theme);
+  if (s.backdrop === "none") return def.theme;
+  return { ...def.theme, background: def.appearance === "dark" ? "#000000" : "#ffffff" };
+}
+
 export class TermSession {
   readonly term: Terminal;
   readonly search = new SearchAddon();
@@ -83,8 +93,11 @@ export class TermSession {
   private fitFrame: number | null = null;
   private ptyTimer: number | null = null;
   private observer: ResizeObserver | null = null;
+  private fitWaiting = false;
   private host: HTMLElement | null = null;
   private settings: Settings;
+  /** Theme id last pushed to xterm (skips no-op theme writes). */
+  private themeApplied: string | null = null;
 
   constructor(
     public source: SessionSource,
@@ -104,7 +117,7 @@ export class TermSession {
       allowTransparency: false,
       smoothScrollDuration: 80,
       macOptionIsMeta: true,
-      theme: themeById(settings.theme).theme,
+      theme: termTheme(settings),
     });
     this.term.loadAddon(this.fit);
     this.term.loadAddon(this.search);
@@ -476,15 +489,30 @@ export class TermSession {
 
   applySettings(s: Settings) {
     this.settings = s;
+    // Only touch options that changed: any settings write (even opening a side panel) lands
+    // here, and re-setting the theme object makes xterm rebuild its glyph atlas and redraw.
     const o = this.term.options;
-    o.fontFamily = s.fontFamily;
-    o.fontSize = s.fontSize;
-    o.lineHeight = s.lineHeight;
-    o.cursorStyle = s.cursorStyle;
-    o.cursorBlink = s.cursorBlink;
-    o.scrollback = s.scrollback;
-    o.theme = themeById(s.theme).theme;
-    this.scheduleFit();
+    let layout = false;
+    const put = <K extends "fontFamily" | "fontSize" | "lineHeight" | "cursorStyle" | "cursorBlink" | "scrollback">(
+      k: K,
+      v: (typeof o)[K],
+    ) => {
+      if (o[k] === v) return;
+      o[k] = v;
+      if (k === "fontFamily" || k === "fontSize" || k === "lineHeight") layout = true;
+    };
+    put("fontFamily", s.fontFamily);
+    put("fontSize", s.fontSize);
+    put("lineHeight", s.lineHeight);
+    put("cursorStyle", s.cursorStyle);
+    put("cursorBlink", s.cursorBlink);
+    put("scrollback", s.scrollback);
+    const themeKey = `${s.theme}|${s.backdrop !== "none"}`;
+    if (this.themeApplied !== themeKey) {
+      o.theme = termTheme(s);
+      this.themeApplied = themeKey;
+    }
+    if (layout) this.scheduleFit();
   }
 
   setHighlight(on: boolean) {
@@ -649,9 +677,17 @@ export class TermSession {
   }
 
   scheduleFit() {
-    // At most once per frame: panels animating open/closed reflow the text as they move.
-    // (fit() only resizes when the cell grid actually changes.)
-    if (this.fitFrame !== null) return;
+    // At most once per frame. While a side panel slides, don't refit at all: reflowing the
+    // grid every frame is what made panel animations stutter. Refit once when it settles.
+    if (this.fitFrame !== null || this.fitWaiting) return;
+    if (layoutAnimating()) {
+      this.fitWaiting = true;
+      afterLayoutAnimation(() => {
+        this.fitWaiting = false;
+        this.scheduleFit();
+      });
+      return;
+    }
     this.fitFrame = requestAnimationFrame(() => {
       this.fitFrame = null;
       this.fitNow();

@@ -47,6 +47,9 @@ pub struct SshTarget {
     pub jump: Option<Box<SshTarget>>,
     #[serde(default)]
     pub forwards: Vec<Forward>,
+    /// Reach this host through a SOCKS5 / HTTP proxy (ignored when tunneling via `jump`).
+    #[serde(default)]
+    pub proxy: Option<crate::proxy::ProxySpec>,
 }
 
 /// Auth needs user input; carried as an error so `?` works, converted to an event.
@@ -165,6 +168,15 @@ impl Conn {
             old.abort();
         }
         Ok(port)
+    }
+
+    /// Round trip of an SSH global request (keepalive with reply), in milliseconds.
+    pub async fn ping(&self) -> anyhow::Result<f64> {
+        let t = std::time::Instant::now();
+        tokio::time::timeout(Duration::from_secs(10), self.handle.send_ping())
+            .await
+            .map_err(|_| anyhow::anyhow!("no reply from server"))??;
+        Ok(t.elapsed().as_secs_f64() * 1000.0)
     }
 
     pub fn stop_forward(&self, local_port: u16) -> bool {
@@ -294,12 +306,7 @@ async fn connect(
         let session = client::connect_stream(config(), ch.into_stream(), handler).await?;
         (session, Some(Box::new(jump_conn)))
     } else {
-        let stream = tokio::time::timeout(
-            Duration::from_secs(10),
-            tokio::net::TcpStream::connect((target.host.as_str(), target.port)),
-        )
-        .await
-        .map_err(|_| anyhow::anyhow!("connection to {}:{} timed out", target.host, target.port))??;
+        let stream = crate::proxy::connect(target.proxy.as_ref(), &target.host, target.port).await?;
         stream.set_nodelay(true)?;
         (client::connect_stream(config(), stream, handler).await?, None)
     };

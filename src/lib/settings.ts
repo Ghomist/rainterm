@@ -9,6 +9,22 @@ export const DEFAULT_DOCK: Record<DockSide, ViewId[]> = {
   right: ["monitor", "ports", "containers", "k8s"],
 };
 
+/** A saved outbound proxy; its password (if any) lives in the OS keychain as `proxy:<id>`. */
+export interface ProxyDef {
+  id: string;
+  name: string;
+  kind: "socks5" | "http";
+  host: string;
+  port: number;
+  user: string;
+  hasPassword: boolean;
+}
+
+export const proxyLabel = (p: ProxyDef) => p.name || `${p.kind === "http" ? "HTTP" : "SOCKS5"} ${p.host}:${p.port}`;
+
+/** Behind the terminals: plain color, the animated weather scene, or the user's picture. */
+export type Backdrop = "none" | "weather" | "image";
+
 export interface Settings {
   fontFamily: string;
   fontSize: number;
@@ -63,6 +79,23 @@ export interface Settings {
   rightView: ViewId | null;
   leftWidth: number;
   rightWidth: number;
+  /** Saved proxies, reusable by sessions. */
+  proxies: ProxyDef[];
+  /** Proxy every SSH session uses unless it picks its own (null = connect directly). */
+  globalProxy: string | null;
+  /** Fewer animations, no blur / glow: smoother on integrated graphics. */
+  reduceEffects: boolean;
+  backdrop: Backdrop;
+  /** Copied into ~/.rainterm/backgrounds. */
+  backdropImage: string | null;
+  /** 0–0.9: darken (dark themes) / wash out (light themes) the picture. */
+  backdropDim: number;
+  /** px */
+  backdropBlur: number;
+  /** 0.2–1: how much rain / how lively the scene is. */
+  weatherIntensity: number;
+  /** 0.3–0.97: how solid the terminal "glass" over the background is. */
+  glassOpacity: number;
 }
 
 export const DEFAULT_FONT =
@@ -107,6 +140,15 @@ export const DEFAULT_SETTINGS: Settings = {
   rightView: null,
   leftWidth: 260,
   rightWidth: 340,
+  proxies: [],
+  globalProxy: null,
+  reduceEffects: false,
+  backdrop: "none",
+  backdropImage: null,
+  backdropDim: 0.35,
+  backdropBlur: 0,
+  weatherIntensity: 0.6,
+  glassOpacity: 0.6,
 };
 
 /** Every view exactly once, each in a dock; new views land in their default dock. */

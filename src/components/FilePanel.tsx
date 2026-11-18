@@ -38,7 +38,8 @@ import {
   X,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -133,6 +134,15 @@ function Browser({ pane, target }: { pane: Pane; target: FsTarget }) {
   const [nav, setNav] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  /** Rows render only once the dock has finished sliding in: switching views stays smooth. */
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setReady(true), 240);
+    return () => clearTimeout(t);
+  }, []);
+  /** What the (single, shared) context menu is for: rows, or null = the folder background. */
+  const [menuFor, setMenuFor] = useState<FsEntry[] | null>(null);
+  const tip = useRowTip();
 
   const sep = listing?.sep ?? (remote ? "/" : navigator.userAgent.includes("Windows") ? "\\" : "/");
   const join = useCallback(
@@ -178,8 +188,11 @@ function Browser({ pane, target }: { pane: Pane; target: FsTarget }) {
   // Initial directory: remembered > shell cwd (OSC 7) > home.
   useEffect(() => {
     const start = lastDir.get(pane.id) ?? pane.cwd;
-    if (start) void load(start);
-    else void ipc.fsHome(target).then((h) => load(h), (e) => setError(String(e)));
+    const t = setTimeout(() => {
+      if (start) void load(start);
+      else void ipc.fsHome(target).then((h) => load(h), (e) => setError(String(e)));
+    }, 200);
+    return () => clearTimeout(t);
   }, [target]);
 
   // Follow the terminal's working directory when the shell reports it (OSC 7).
@@ -578,9 +591,25 @@ function Browser({ pane, target }: { pane: Pane; target: FsTarget }) {
           <div
             className="relative min-h-0 flex-1"
             onPointerDown={(e) => {
+              tip.hide();
               if (!(e.target as HTMLElement).closest("[data-name]")) setSelected(new Set());
               rootRef.current?.focus({ preventScroll: true });
             }}
+            onContextMenu={(ev) => {
+              tip.hide();
+              const name = (ev.target as HTMLElement).closest<HTMLElement>("[data-name]")?.dataset.name;
+              const entry = name != null ? entries.find((x) => x.name === name) : undefined;
+              if (!entry) return setMenuFor(null);
+              if (selected.has(entry.name)) setMenuFor(selEntries);
+              else {
+                setSelected(new Set([entry.name]));
+                setAnchor(entry.name);
+                setMenuFor([entry]);
+              }
+              setCursor(entry.name);
+            }}
+            onPointerOver={(ev) => tip.over(ev, entries)}
+            onPointerLeave={tip.hide}
           >
             <ScrollArea className="h-full" viewportRef={listRef}>
             <motion.div
@@ -595,44 +624,21 @@ function Browser({ pane, target }: { pane: Pane; target: FsTarget }) {
                 <InlineInput initial="New folder" onDone={(v) => void commitCreate(v)} />
               </RowShell>
             )}
-            {entries.map((e) => (
-              <ContextMenu key={e.name}>
-                <ContextMenuTrigger asChild>
-                  <Row
-                    entry={e}
-                    selected={selected.has(e.name)}
-                    cursor={cursor === e.name}
-                    renaming={renaming === e.name}
-                    remote={remote}
-                    onClick={(ev) => click(ev, e.name)}
-                    onOpen={() => void openEntry(e)}
-                    onContext={() => {
-                      if (!selected.has(e.name)) {
-                        setSelected(new Set([e.name]));
-                        setAnchor(e.name);
-                      }
-                      setCursor(e.name);
-                    }}
-                    onRename={(v) => void commitRename(e.name, v)}
-                    dragPaths={() =>
-                      (selected.has(e.name) ? selEntries : [e]).map((x) => pathOf(x.name))
-                    }
-                  />
-                </ContextMenuTrigger>
-                <EntryMenu
-                  items={selected.has(e.name) ? selEntries : [e]}
-                  remote={remote}
-                  pathOf={pathOf}
-                  onOpen={openEntry}
-                  onDownload={downloadSel}
-                  onDelete={deleteSel}
-                  onRename={(name) => setRenaming(name)}
-                  onTerminal={toTerminal}
-                  onCd={cdHere}
-                />
-              </ContextMenu>
+            {(ready ? entries : []).map((e) => (
+              <Row
+                key={e.name}
+                entry={e}
+                selected={selected.has(e.name)}
+                cursor={cursor === e.name}
+                renaming={renaming === e.name}
+                remote={remote}
+                onClick={(ev) => click(ev, e.name)}
+                onOpen={() => void openEntry(e)}
+                onRename={(v) => void commitRename(e.name, v)}
+                dragPaths={() => (selected.has(e.name) ? selEntries : [e]).map((x) => pathOf(x.name))}
+              />
             ))}
-            {listing && entries.length === 0 && !creating && (
+            {ready && listing && entries.length === 0 && !creating && (
               <div className="py-10 text-center text-[12px] text-muted-foreground">
                 {filter ? `Nothing matches “${filter}”` : "This folder is empty"}
               </div>
@@ -641,6 +647,19 @@ function Browser({ pane, target }: { pane: Pane; target: FsTarget }) {
             </ScrollArea>
           </div>
         </ContextMenuTrigger>
+        {menuFor ? (
+          <EntryMenu
+            items={menuFor}
+            remote={remote}
+            pathOf={pathOf}
+            onOpen={openEntry}
+            onDownload={downloadSel}
+            onDelete={deleteSel}
+            onRename={(name) => setRenaming(name)}
+            onTerminal={toTerminal}
+            onCd={cdHere}
+          />
+        ) : (
         <ContextMenuContent>
           <ContextMenuItem onSelect={() => setCreating(true)}>
             <FolderPlus /> New folder
@@ -673,7 +692,9 @@ function Browser({ pane, target }: { pane: Pane; target: FsTarget }) {
             {showHidden ? <EyeOff /> : <Eye />} {showHidden ? "Hide" : "Show"} hidden files
           </ContextMenuItem>
         </ContextMenuContent>
+        )}
       </ContextMenu>
+      {tip.node}
 
       {/* footer */}
       <div className="flex h-8 shrink-0 items-center gap-1 border-t border-ov/[0.06] pr-1.5 pl-4 text-[11px] text-muted-foreground">
@@ -705,7 +726,7 @@ function Browser({ pane, target }: { pane: Pane; target: FsTarget }) {
             initial={{ opacity: 0, scale: 0.98 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.98 }}
-            className="pointer-events-none absolute inset-2 z-30 flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-primary/60 bg-primary/10 text-[12.5px] text-primary backdrop-blur-sm"
+            className="pointer-events-none absolute inset-2 z-30 flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-primary/60 bg-[color-mix(in_oklab,var(--primary)_12%,var(--surface))] text-[12.5px] text-primary"
           >
             <Upload className="size-6" />
             Drop to upload to
@@ -891,12 +912,8 @@ function Row({
   remote,
   onClick,
   onOpen,
-  onContext,
   onRename,
   dragPaths,
-  onContextMenu: radixContext,
-  onPointerDown: radixPointer,
-  ...rest
 }: {
   entry: FsEntry;
   selected: boolean;
@@ -905,25 +922,16 @@ function Row({
   remote: boolean;
   onClick: (e: React.MouseEvent) => void;
   onOpen: () => void;
-  onContext: () => void;
   onRename: (v: string) => void;
   dragPaths: () => string[];
-} & React.HTMLAttributes<HTMLDivElement>) {
+}) {
   const hidden = e.name.startsWith(".");
   return (
     <div
-      {...rest}
       data-name={e.name}
       onClick={onClick}
       onDoubleClick={onOpen}
-      onContextMenu={(ev) => {
-        onContext();
-        radixContext?.(ev);
-      }}
-      onPointerDown={(ev) => {
-        radixPointer?.(ev);
-        startPathDrag(ev, dragPaths, remote);
-      }}
+      onPointerDown={(ev) => startPathDrag(ev, dragPaths, remote)}
       className={cn(
         "grid h-7 cursor-default grid-cols-[1fr_64px_78px] items-center gap-2 rounded-md px-2 text-[12.5px] transition-colors duration-75",
         selected ? "bg-primary/15 text-foreground" : "text-foreground/90 hover:bg-ov/[0.05]",
@@ -935,20 +943,7 @@ function Row({
         {renaming ? (
           <InlineInput initial={e.name} selectBase={e.kind !== "dir"} onDone={onRename} />
         ) : (
-          <Tooltip
-            delay={900}
-            side="left"
-            content={[
-              e.name,
-              e.kind === "file" ? fmtSize(e.size) : null,
-              e.mode != null ? fmtMode(e.mode) : null,
-              e.mtime ? new Date(e.mtime * 1000).toLocaleString() : null,
-            ]
-              .filter(Boolean)
-              .join(" · ")}
-          >
-            <span className="truncate">{e.name}</span>
-          </Tooltip>
+          <span className="truncate">{e.name}</span>
         )}
       </span>
       <span className="truncate text-right text-[11px] text-muted-foreground tabular-nums">
@@ -957,6 +952,53 @@ function Row({
       <span className="truncate text-right text-[11px] text-muted-foreground tabular-nums">{fmtTime(e.mtime)}</span>
     </div>
   );
+}
+
+/** One hover tooltip for the whole list (a Radix tooltip per row made big folders slow to open). */
+function useRowTip() {
+  const [tip, setTip] = useState<{ text: string; x: number; y: number } | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const row = useRef<string | null>(null);
+  const hide = () => {
+    clearTimeout(timer.current);
+    row.current = null;
+    setTip(null);
+  };
+  const over = (ev: React.PointerEvent, entries: FsEntry[]) => {
+    const el = (ev.target as HTMLElement).closest<HTMLElement>("[data-name]");
+    const name = el?.dataset.name ?? null;
+    if (name === row.current) return;
+    hide();
+    row.current = name;
+    if (!el || name == null || ev.buttons) return;
+    timer.current = setTimeout(() => {
+      const e = entries.find((x) => x.name === name);
+      if (!e || !el.isConnected) return;
+      const r = el.getBoundingClientRect();
+      const text = [
+        e.name,
+        e.kind === "file" ? fmtSize(e.size) : null,
+        e.mode != null ? fmtMode(e.mode) : null,
+        e.mtime ? new Date(e.mtime * 1000).toLocaleString() : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      setTip({ text, x: r.left + 28, y: r.bottom + 4 });
+    }, 900);
+  };
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const node = tip
+    ? createPortal(
+        <div
+          className="pointer-events-none fixed z-[95] max-w-72 rounded-md border border-ov/10 bg-popover px-2 py-1 text-[11.5px] leading-snug break-words text-popover-foreground shadow-lg shadow-shadow animate-in fade-in-0 zoom-in-95 duration-150"
+          style={{ left: Math.min(tip.x, window.innerWidth - 296), top: Math.min(tip.y, window.innerHeight - 60) }}
+        >
+          {tip.text}
+        </div>,
+        document.body,
+      )
+    : null;
+  return { over, hide, node };
 }
 
 function InlineInput({ initial, onDone, selectBase }: { initial: string; onDone: (v: string) => void; selectBase?: boolean }) {
@@ -1017,51 +1059,99 @@ function EntryMenu({
 }) {
   const one = items.length === 1 ? items[0] : null;
   const paths = items.map((e) => pathOf(e.name));
+  const files = items.filter((e) => e.kind !== "dir");
+  const dirs = items.length - files.length;
+  const s = items.length > 1 ? "s" : "";
+  const copy = (text: string, what: string) => {
+    void navigator.clipboard.writeText(text);
+    toast({ kind: "success", title: `Copied ${what}`, duration: 1600 });
+  };
+  const key = (k: string) => <span className="ml-auto pl-4 text-[10.5px] text-muted-foreground">{k}</span>;
+
+  // Groups are joined with separators, so a group that ends up empty leaves no stray line.
+  const groups: React.ReactNode[][] = [
+    one
+      ? [
+          <ContextMenuItem key="open" onSelect={() => onOpen(one)}>
+            {one.kind === "dir" ? <FolderOpen /> : remote ? <Pencil /> : <File />}
+            {one.kind === "dir" ? "Open" : remote ? "Open & edit (auto-upload)" : "Open"}
+            {key("Enter")}
+          </ContextMenuItem>,
+        ]
+      : !remote && files.length > 0 && files.length <= 20
+        ? [
+            <ContextMenuItem key="open" onSelect={() => files.forEach((f) => onOpen(f))}>
+              <File /> Open {files.length} file{files.length > 1 ? "s" : ""}
+            </ContextMenuItem>,
+          ]
+        : [],
+    remote
+      ? [
+          <ContextMenuItem key="dl" onSelect={() => onDownload(items)}>
+            <Download /> Download{items.length > 1 ? ` ${items.length} items` : ""}
+          </ContextMenuItem>,
+          <ContextMenuItem key="dlto" onSelect={() => onDownload(items, true)}>
+            <FolderDown /> Download to…
+          </ContextMenuItem>,
+        ]
+      : [
+          <ContextMenuItem key="reveal" onSelect={() => void revealItemInDir(one ? paths[0] : paths)}>
+            <FolderOpen /> Show in file manager
+          </ContextMenuItem>,
+        ],
+    [
+      ...(one?.kind === "dir"
+        ? [
+            <ContextMenuItem key="cd" onSelect={() => onCd(pathOf(one.name))}>
+              <SquareTerminal /> cd here in terminal
+            </ContextMenuItem>,
+          ]
+        : []),
+      <ContextMenuItem key="term" onSelect={() => onTerminal(paths)}>
+        <SquareTerminal /> Insert path{s} into terminal
+      </ContextMenuItem>,
+      <ContextMenuItem key="cp" onSelect={() => copy(paths.join("\n"), one ? "path" : `${items.length} paths`)}>
+        <ClipboardCopy /> Copy path{s}
+      </ContextMenuItem>,
+      <ContextMenuItem key="cn" onSelect={() => copy(items.map((e) => e.name).join("\n"), one ? "name" : `${items.length} names`)}>
+        <ClipboardCopy /> Copy name{s}
+      </ContextMenuItem>,
+    ],
+    [
+      ...(one
+        ? [
+            <ContextMenuItem key="ren" onSelect={() => onRename(one.name)}>
+              <Pencil /> Rename {key("F2")}
+            </ContextMenuItem>,
+          ]
+        : []),
+      <ContextMenuItem key="del" destructive onSelect={() => onDelete(items)}>
+        <Trash2 /> Delete{items.length > 1 ? ` ${items.length} items` : ""}
+        <span className="ml-auto pl-4 text-[10.5px] opacity-70">Del</span>
+      </ContextMenuItem>,
+    ],
+  ].filter((g) => g.length > 0);
+
   return (
     <ContextMenuContent className="min-w-52">
-      {one && (
-        <ContextMenuItem onSelect={() => onOpen(one)}>
-          {one.kind === "dir" ? <FolderOpen /> : remote ? <Pencil /> : <File />}
-          {one.kind === "dir" ? "Open" : remote ? "Open & edit (auto-upload)" : "Open"}
-        </ContextMenuItem>
+      {!one && (
+        <div className="flex items-center gap-1.5 px-2 pt-1 pb-1.5 text-[11px] text-muted-foreground">
+          <span className="font-medium text-foreground/85">{items.length} selected</span>
+          <span className="truncate">
+            {[files.length && `${files.length} file${files.length > 1 ? "s" : ""}`, dirs && `${dirs} folder${dirs > 1 ? "s" : ""}`]
+              .filter(Boolean)
+              .join(", ")}
+            {files.length > 0 && ` · ${fmtSize(files.reduce((n, f) => n + f.size, 0))}`}
+          </span>
+        </div>
       )}
-      {remote && (
-        <>
-          <ContextMenuItem onSelect={() => onDownload(items)}>
-            <Download /> Download{items.length > 1 ? ` ${items.length} items` : ""}
-          </ContextMenuItem>
-          <ContextMenuItem onSelect={() => onDownload(items, true)}>
-            <FolderDown /> Download to…
-          </ContextMenuItem>
-        </>
-      )}
-      {!remote && one && (
-        <ContextMenuItem onSelect={() => void revealItemInDir(pathOf(one.name))}>
-          <FolderOpen /> Show in file manager
-        </ContextMenuItem>
-      )}
-      <ContextMenuSeparator />
-      {one?.kind === "dir" && (
-        <ContextMenuItem onSelect={() => onCd(pathOf(one.name))}>
-          <SquareTerminal /> cd here in terminal
-        </ContextMenuItem>
-      )}
-      <ContextMenuItem onSelect={() => onTerminal(paths)}>
-        <SquareTerminal /> Insert path{items.length > 1 ? "s" : ""} into terminal
-      </ContextMenuItem>
-      <ContextMenuItem onSelect={() => void navigator.clipboard.writeText(paths.join("\n"))}>
-        <ClipboardCopy /> Copy path{items.length > 1 ? "s" : ""}
-      </ContextMenuItem>
-      <ContextMenuSeparator />
-      {one && (
-        <ContextMenuItem onSelect={() => onRename(one.name)}>
-          <Pencil /> Rename <span className="ml-auto text-[10.5px] text-muted-foreground">F2</span>
-        </ContextMenuItem>
-      )}
-      <ContextMenuItem destructive onSelect={() => onDelete(items)}>
-        <Trash2 /> Delete{items.length > 1 ? ` ${items.length} items` : ""}
-        <span className="ml-auto text-[10.5px] opacity-70">Del</span>
-      </ContextMenuItem>
+      {groups.map((g, i) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: fixed group order
+        <Fragment key={i}>
+          {(i > 0 || !one) && <ContextMenuSeparator />}
+          {g}
+        </Fragment>
+      ))}
     </ContextMenuContent>
   );
 }
@@ -1214,7 +1304,7 @@ function fmtTime(sec: number | null) {
   const diff = (now.getTime() - d.getTime()) / 1000;
   if (diff < 60) return "just now";
   if (diff < 3600) return `${Math.floor(diff / 60)} min ago`;
-  const hm = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+  const hm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
   if (d.toDateString() === now.toDateString()) return hm;
   const y = new Date(now);
   y.setDate(now.getDate() - 1);

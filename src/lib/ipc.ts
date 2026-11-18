@@ -94,6 +94,15 @@ export interface SshTarget {
   auth: SshAuth;
   jump?: SshTarget | null;
   forwards: Forward[];
+  proxy?: ProxySpec | null;
+}
+
+export interface ProxySpec {
+  kind: "socks5" | "http";
+  host: string;
+  port: number;
+  user?: string | null;
+  password?: string | null;
 }
 
 export interface SerialTarget {
@@ -224,6 +233,10 @@ export const ipc = {
   sshForwardAdd: (sessionId: string, localPort: number, remoteHost: string, remotePort: number) =>
     invoke<number>("ssh_forward_add", { sessionId, localPort, remoteHost, remotePort }),
   sshForwardStop: (sessionId: string, localPort: number) => invoke<boolean>("ssh_forward_stop", { sessionId, localPort }),
+  backdropImport: (src: string) => invoke<string>("backdrop_import", { src }),
+  backdropRead: (path: string) => invoke<ArrayBuffer>("backdrop_read", { path }),
+  sshPing: (sessionId: string) => invoke<number>("ssh_ping", { sessionId }),
+  proxyTest: (proxy: ProxySpec, host: string, port: number) => invoke<number>("proxy_test", { proxy, host, port }),
   sshConfigHosts: () => invoke<[SshConfigHost[], string]>("ssh_config_hosts"),
   setHighlightRules: (rules: HighlightRule[]) => invoke<string[]>("set_highlight_rules", { rules }),
   defaultHighlightRules: () => invoke<HighlightRule[]>("default_highlight_rules"),
@@ -262,7 +275,7 @@ export const ipc = {
 
   setWindowEffects: (enabled: boolean, dark: boolean) =>
     invoke<boolean>("set_window_effects", { enabled, dark }),
-  setWindowAppearance: (dark: boolean) => invoke<void>("set_window_appearance", { dark }),
+  setWindowAppearance: (dark: boolean | null) => invoke<void>("set_window_appearance", { dark }),
 };
 
 export { Channel };

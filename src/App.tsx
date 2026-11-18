@@ -1,4 +1,5 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { MotionConfig } from "motion/react";
 import { useEffect } from "react";
 import { CommandPalette } from "@/components/CommandPalette";
 import { Dialogs } from "@/components/dialogs";
@@ -12,6 +13,7 @@ import { TitleBar } from "@/components/TitleBar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ipc } from "@/lib/ipc";
 import { comboFromEvent, keymap, recording } from "@/lib/keymap";
+import { useLatencyPolling } from "@/lib/latency";
 import { machineKey, pollMachine } from "@/lib/monitor";
 import { confirm } from "@/lib/overlay";
 import { themeById } from "@/lib/term-theme";
@@ -20,7 +22,9 @@ import { isViewOpen, useApp, useThemeId } from "@/store/app";
 export default function App() {
   const init = useApp((s) => s.init);
   const effects = useApp((s) => s.effects);
+  const reduce = useApp((s) => s.settings.reduceEffects);
   const themeId = useThemeId();
+  const followSystem = useApp((s) => s.settings.themeMode === "system");
 
   useEffect(() => {
     void init();
@@ -29,6 +33,10 @@ export default function App() {
   useEffect(() => {
     document.documentElement.dataset.effects = effects ? "on" : "off";
   }, [effects]);
+
+  useEffect(() => {
+    document.documentElement.dataset.reduce = reduce ? "on" : "off";
+  }, [reduce]);
 
   // Follow the OS light/dark setting (used by themeMode "system").
   useEffect(() => {
@@ -49,8 +57,13 @@ export default function App() {
     html.style.setProperty("--primary", def.accent);
     for (const c of ["red", "yellow", "green", "blue", "magenta", "cyan"] as const)
       html.style.setProperty(`--term-${c}`, String(t[c]));
-    void ipc.setWindowAppearance(def.appearance === "dark").catch(() => {});
-  }, [themeId]);
+    void ipc
+      .setWindowAppearance(followSystem ? null : def.appearance === "dark")
+      // Un-forcing the window theme flips prefers-color-scheme back to the OS value
+      // without always firing a change event: re-read it.
+      .then(() => useApp.getState().setSystemDark(window.matchMedia("(prefers-color-scheme: dark)").matches))
+      .catch(() => {});
+  }, [themeId, followSystem]);
 
   // Mica is opt-in: solid themed chrome by default.
   const mica = useApp((s) => s.settings.mica);
@@ -64,18 +77,6 @@ export default function App() {
 
   useShortcuts();
   useIdleLock();
-
-  // Resource monitor: poll the active session's machine (faster while the panel is open).
-  const monitorOpen = useApp((s) => isViewOpen(s, "monitor"));
-  const machine = useApp((s) => {
-    const tab = s.tabs.find((t) => t.id === s.activeTabId);
-    const pane = tab ? s.panes[tab.activePane] : null;
-    const key = pane ? machineKey(pane.kind, pane.status === "connected" ? pane.session.sessionId : null) : null;
-    return key && key !== "local" && !s.settings.monitorRemote ? null : key;
-  });
-  useEffect(() => {
-    pollMachine(machine, monitorOpen ? 2000 : 5000);
-  }, [machine, monitorOpen]);
 
   // Before the window closes: save the session, and ask if remote sessions are live.
   useEffect(() => {
@@ -109,22 +110,25 @@ export default function App() {
   }, []);
 
   return (
-    <TooltipProvider>
-      <div className="flex h-full flex-col bg-chrome">
-        <TitleBar />
-        <div className="flex min-h-0 flex-1">
-          <Dock side="left" />
-          <TerminalArea />
-          <Dock side="right" />
+    <MotionConfig reducedMotion={reduce ? "always" : "user"}>
+      <TooltipProvider>
+        <div className="flex h-full flex-col bg-chrome">
+          <TitleBar />
+          <div className="flex min-h-0 flex-1">
+            <Dock side="left" />
+            <TerminalArea />
+            <Dock side="right" />
+          </div>
+          <StatusBar />
         </div>
-        <StatusBar />
-      </div>
-      <CommandPalette />
-      <Dialogs />
-      <SettingsDialog />
-      <Overlays />
-      <LockScreen />
-    </TooltipProvider>
+        <Pollers />
+        <CommandPalette />
+        <Dialogs />
+        <SettingsDialog />
+        <Overlays />
+        <LockScreen />
+      </TooltipProvider>
+    </MotionConfig>
   );
 }
 
@@ -209,4 +213,29 @@ function useIdleLock() {
       clearInterval(timer);
     };
   }, []);
+}
+
+/** Background polling (monitor, SSH latency). A component of its own so that what it
+ *  watches (active tab, panel open, connections) doesn't re-render the whole app. */
+function Pollers() {
+  const sshIds = useApp((s) =>
+    Object.values(s.panes)
+      .filter((p) => p.kind === "ssh" && p.status === "connected" && p.session.sessionId)
+      .map((p) => p.session.sessionId)
+      .join(","),
+  );
+  useLatencyPolling(sshIds ? sshIds.split(",") : []);
+
+  // Resource monitor: poll the active session's machine (faster while the panel is open).
+  const monitorOpen = useApp((s) => isViewOpen(s, "monitor"));
+  const machine = useApp((s) => {
+    const tab = s.tabs.find((t) => t.id === s.activeTabId);
+    const pane = tab ? s.panes[tab.activePane] : null;
+    const key = pane ? machineKey(pane.kind, pane.status === "connected" ? pane.session.sessionId : null) : null;
+    return key && key !== "local" && !s.settings.monitorRemote ? null : key;
+  });
+  useEffect(() => {
+    pollMachine(machine, monitorOpen ? 2000 : 5000);
+  }, [machine, monitorOpen]);
+  return null;
 }

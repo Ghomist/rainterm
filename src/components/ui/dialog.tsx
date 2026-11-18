@@ -15,11 +15,11 @@ function DialogContent({
 }: React.ComponentProps<typeof DialogPrimitive.Content> & { showClose?: boolean }) {
   return (
     <DialogPrimitive.Portal>
-      <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/40 backdrop-blur-[2px] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 duration-200" />
+      <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/45 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 duration-150" />
       <DialogPrimitive.Content
         className={cn(
-          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[min(440px,calc(100%-2rem))] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl border border-ov/10 bg-popover p-5 shadow-2xl shadow-shadow outline-none",
-          "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=open]:slide-in-from-top-[2%] duration-200 ease-out",
+          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[min(440px,calc(100%-2rem))] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl border border-ov/10 bg-popover p-5 shadow-xl shadow-shadow outline-none",
+          "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-[0.98] data-[state=open]:zoom-in-[0.98] duration-150 ease-out",
           className,
         )}
         {...props}

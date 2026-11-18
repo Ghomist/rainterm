@@ -147,7 +147,7 @@ function ToastView({ t }: { t: Toast }) {
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, x: 40, transition: { duration: 0.15 } }}
       transition={{ type: "spring", stiffness: 480, damping: 34 }}
-      className="pointer-events-auto w-full overflow-hidden rounded-xl border border-ov/10 bg-popover/95 shadow-xl shadow-shadow backdrop-blur"
+      className="pointer-events-auto w-full overflow-hidden rounded-xl border border-ov/10 bg-popover shadow-xl shadow-shadow"
     >
       <div className="flex items-start gap-2.5 p-3">
         <div className="mt-px">{icons[t.kind]}</div>

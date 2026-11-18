@@ -240,3 +240,30 @@ html.light[data-effects="on"] {
   transform: scale(0.88);
   transition-duration: 0.06s;
 }
+
+/* Settings → "Reduce animations and effects": instant transitions, no glow filters. */
+html[data-reduce="on"] *,
+html[data-reduce="on"] *::before,
+html[data-reduce="on"] *::after {
+  transition-duration: 0.01ms !important;
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+}
+html[data-reduce="on"] .rail-btn svg {
+  filter: none !important;
+}
+
+/* Terminals over a background: xterm stays opaque (so glyph anti-aliasing is exactly as
+   without a background) and its canvas is blended into the glass below. With the theme's
+   own background color, multiply (light) / screen (dark) leave the glass showing and the
+   text crisp. */
+html.light [data-glass="on"] .xterm-screen {
+  mix-blend-mode: multiply;
+}
+html.dark [data-glass="on"] .xterm-screen {
+  mix-blend-mode: screen;
+}
+/* xterm paints its own opaque background behind the canvas; the glass replaces it. */
+[data-glass="on"] .xterm .xterm-scrollable-element {
+  background-color: transparent !important;
+}

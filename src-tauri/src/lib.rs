@@ -1,6 +1,7 @@
 mod commands;
 mod files;
 mod ops;
+mod proxy;
 mod highlight;
 mod history;
 mod monitor;
@@ -227,6 +228,17 @@ fn ssh_forward_stop(sessions: S<'_>, session_id: String, local_port: u16) -> Cmd
 }
 
 #[tauri::command]
+async fn ssh_ping(sessions: S<'_>, session_id: String) -> CmdResult<f64> {
+    let conn = sessions.ssh(&session_id)?;
+    conn.ping().await.map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+async fn proxy_test(proxy: proxy::ProxySpec, host: String, port: u16) -> CmdResult<u64> {
+    proxy::test(&proxy, &host, port).await.map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
 fn monitor_forget(session_id: String) {
     monitor::forget(&session_id);
 }
@@ -387,9 +399,47 @@ fn set_window_effects(window: tauri::WebviewWindow, enabled: bool, dark: bool) -
 }
 
 /// Tell the OS whether the window is light or dark (affects native bits like shadows).
+// ------------------------------------------------------------------ backgrounds
+
+const IMAGE_EXTS: [&str; 7] = ["png", "jpg", "jpeg", "webp", "gif", "bmp", "avif"];
+
+/// Copy a picked image into ~/.rainterm/backgrounds (so moving the original doesn't
+/// break it) and return the copy's path.
 #[tauri::command]
-fn set_window_appearance(window: tauri::WebviewWindow, dark: bool) {
-    let _ = window.set_theme(Some(if dark { tauri::Theme::Dark } else { tauri::Theme::Light }));
+fn backdrop_import(src: String) -> CmdResult<String> {
+    let src = std::path::PathBuf::from(src);
+    let ext = src.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    if !IMAGE_EXTS.contains(&ext.as_str()) {
+        return Err("not a supported image (png, jpg, webp, gif, bmp, avif)".into());
+    }
+    let dir = store::config_dir().map_err(|e| e.to_string())?.join("backgrounds");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let stem = src.file_stem().and_then(|s| s.to_str()).unwrap_or("background");
+    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let dest = dir.join(format!("{stem}-{stamp}.{ext}"));
+    std::fs::copy(&src, &dest).map_err(|e| format!("copy {}: {e}", src.display()))?;
+    Ok(dest.to_string_lossy().into_owned())
+}
+
+/// Raw bytes of a background image (only images inside ~/.rainterm/backgrounds).
+#[tauri::command]
+fn backdrop_read(path: String) -> CmdResult<tauri::ipc::Response> {
+    let dir = store::config_dir().map_err(|e| e.to_string())?.join("backgrounds");
+    let p = std::path::PathBuf::from(&path);
+    let canon = p.canonicalize().map_err(|e| format!("{path}: {e}"))?;
+    let root = dir.canonicalize().map_err(|e| e.to_string())?;
+    if !canon.starts_with(&root) {
+        return Err("background images must live in ~/.rainterm/backgrounds".into());
+    }
+    let bytes = std::fs::read(&canon).map_err(|e| e.to_string())?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+#[tauri::command]
+/// `None` = follow the OS. Forcing a theme also changes what the webview reports as
+/// `prefers-color-scheme`, so "follow system" must hand control back to the OS.
+fn set_window_appearance(window: tauri::WebviewWindow, dark: Option<bool>) {
+    let _ = window.set_theme(dark.map(|d| if d { tauri::Theme::Dark } else { tauri::Theme::Light }));
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -423,6 +473,10 @@ pub fn run() {
             ops_run,
             ssh_forward_add,
             ssh_forward_stop,
+            ssh_ping,
+            proxy_test,
+            backdrop_import,
+            backdrop_read,
             monitor_local,
             monitor_remote,
             monitor_forget,

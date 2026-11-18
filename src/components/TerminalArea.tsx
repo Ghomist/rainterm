@@ -27,7 +27,9 @@ import { Kbd } from "@/components/ui/input";
 import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { groupById, INPUT_GROUPS, type Layout, type Pane, type Tab, useApp } from "@/store/app";
+import { Backdrop } from "./Backdrop";
 import { Gutter, gutterWidth } from "./Gutter";
+import { Latency } from "./Latency";
 import { SuggestOverlay } from "./Suggest";
 import { StatusDot } from "./StatusDot";
 
@@ -37,6 +39,7 @@ export function TerminalArea() {
 
   return (
     <main className="relative min-w-0 flex-1 overflow-hidden rounded-xl border border-ov/[0.07] bg-surface shadow-sm shadow-shadow/40">
+      <Backdrop />
       {tabs.map((t) => (
         <TabView key={t.id} tab={t} active={t.id === activeTabId} />
       ))}
@@ -48,12 +51,15 @@ export function TerminalArea() {
 
 function TabView({ tab, active }: { tab: Tab; active: boolean }) {
   const multi = tab.layout.type === "split";
+  // Over a background the terminals blend into the scene (mix-blend-mode), which only works
+  // without a stacking context in between: no z-index, and no opacity fade.
+  const glass = useApp((s) => s.settings.backdrop !== "none");
   return (
     <motion.div
       initial={false}
-      animate={{ opacity: active ? 1 : 0 }}
-      transition={{ duration: 0.12 }}
-      style={{ visibility: active ? "visible" : "hidden", zIndex: active ? 1 : 0 }}
+      animate={{ opacity: active || glass ? 1 : 0 }}
+      transition={{ duration: glass ? 0 : 0.12 }}
+      style={{ visibility: active ? "visible" : "hidden", zIndex: glass ? undefined : active ? 1 : 0 }}
       className="absolute inset-0 flex"
     >
       {tab.zoomed ? (
@@ -180,6 +186,7 @@ function TerminalPane({
   const reconnect = useApp((s) => s.reconnect);
   const focusPane = useApp((s) => s.focusPane);
   const lineNumbers = useApp((s) => s.settings.lineNumbers);
+  const glass = useApp((s) => (s.settings.backdrop !== "none" ? s.settings.glassOpacity : null));
   const { session } = pane;
   const [width, setWidth] = useState(() => gutterWidth(session, lineNumbers));
   const showHeader = multi || !!pane.group;
@@ -223,9 +230,14 @@ function TerminalPane({
       onPointerDownCapture={() => focusPane(pane.id)}
     >
       {showHeader && <PaneHeader pane={pane} focused={focused} multi={multi} zoomed={zoomed} />}
-      <div className="relative min-h-0 flex-1">
+      <div
+        className="relative min-h-0 flex-1"
+        data-glass={glass != null ? "on" : undefined}
+        style={glass != null ? { background: `color-mix(in srgb, var(--surface) ${Math.round(glass * 100)}%, transparent)` } : undefined}
+      >
         <Gutter session={session} lineNumbers={lineNumbers} width={width} />
-        <div ref={ref} className="absolute top-0 right-0 bottom-0" style={{ left: width }} />
+        {/* Clips the terminal while a side panel slides (it refits only once it settles). */}
+        <div ref={ref} className="absolute top-0 right-0 bottom-0 overflow-hidden" style={{ left: width }} />
         <SuggestOverlay session={session} left={width} />
         {/* Dim unfocused panes a touch so the active one stands out. */}
         <div
@@ -243,7 +255,7 @@ function TerminalPane({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 8, scale: 0.98 }}
             transition={{ type: "spring", stiffness: 420, damping: 32 }}
-            className="absolute right-4 bottom-4 z-10 flex max-w-[min(520px,calc(100%-2rem))] items-start gap-3 rounded-xl border border-ov/10 bg-popover/95 p-3 pr-3.5 shadow-2xl shadow-shadow backdrop-blur"
+            className="absolute right-4 bottom-4 z-10 flex max-w-[min(520px,calc(100%-2rem))] items-start gap-3 rounded-xl border border-ov/10 bg-popover p-3 pr-3.5 shadow-2xl shadow-shadow"
           >
             <div
               className={
@@ -317,6 +329,7 @@ function PaneHeader({
           <Icon className="size-3.5 shrink-0 opacity-70" />
           <span className="min-w-0 truncate font-medium">{pane.title}</span>
           <span className="min-w-0 truncate opacity-60">{pane.subtitle}</span>
+          <Latency pane={pane} className="text-[10.5px] opacity-70" />
           {group && (
             <span
               className="flex shrink-0 items-center gap-1 rounded-full px-1.5 py-px text-[10.5px] font-medium"
@@ -499,7 +512,7 @@ function SearchBar() {
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -8 }}
           transition={{ duration: 0.15 }}
-          className="absolute top-2.5 right-5 z-20 flex items-center gap-1 rounded-lg border border-ov/10 bg-popover/95 p-1 shadow-xl shadow-shadow backdrop-blur"
+          className="absolute top-2.5 right-5 z-20 flex items-center gap-1 rounded-lg border border-ov/10 bg-popover p-1 shadow-xl shadow-shadow"
         >
           <input
             autoFocus

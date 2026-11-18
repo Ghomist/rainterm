@@ -84,7 +84,7 @@ export function SuggestOverlay({ session, left }: { session: TermSession; left: 
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, transition: { duration: 0.07 } }}
             transition={{ duration: 0.11, ease: "easeOut" }}
-            className="pointer-events-auto absolute w-max max-w-[min(560px,92%)] min-w-56 overflow-hidden rounded-lg border border-ov/10 bg-popover/95 shadow-xl shadow-shadow backdrop-blur"
+            className="pointer-events-auto absolute w-max max-w-[min(560px,92%)] min-w-56 overflow-hidden rounded-lg border border-ov/10 bg-popover shadow-xl shadow-shadow"
             style={{
               left: Math.max(4, Math.min(geo.x - 6, geo.hostW - 260)),
               ...(below ? { top: geo.y + geo.cellH + 4 } : { bottom: geo.hostH - geo.y + 4 }),

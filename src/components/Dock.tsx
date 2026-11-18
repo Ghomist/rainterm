@@ -17,7 +17,9 @@ import {
   Zap,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useState } from "react";
+import { beginLayoutAnimation, endLayoutAnimation } from "@/lib/layout-anim";
+import { ErrorBoundary } from "./ErrorBoundary";
+import { useEffect, useRef, useState } from "react";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -58,7 +60,20 @@ export function Dock({ side }: { side: DockSide }) {
   const hidden = useApp((s) => s.panelsHidden);
   const width = useApp((s) => (side === "left" ? s.settings.leftWidth : s.settings.rightWidth));
   const [live, setLive] = useState<number | null>(null);
+  const reduce = useApp((s) => s.settings.reduceEffects);
   const shown = active && views.includes(active) && !hidden ? active : null;
+  // The view inside lags the panel by one slide: opening from closed, the panel slides out
+  // first and the view mounts after (mounting during the slide made it stutter); closing,
+  // the view stays until the panel has slid away. Switching views while open is immediate.
+  const [content, setContent] = useState(shown);
+  const open = useRef(!!shown);
+  useEffect(() => {
+    const wasOpen = open.current;
+    open.current = !!shown;
+    if (shown && wasOpen) return setContent(shown);
+    const t = setTimeout(() => setContent(shown), reduce ? 0 : 220);
+    return () => clearTimeout(t);
+  }, [shown]);
   const w = live ?? width;
 
   const onResize = (e: React.PointerEvent) => {
@@ -87,7 +102,10 @@ export function Dock({ side }: { side: DockSide }) {
     <motion.div
       initial={false}
       animate={{ width: shown ? w : 0, opacity: shown ? 1 : 0 }}
-      transition={live !== null ? { duration: 0 } : { type: "spring", stiffness: 420, damping: 42 }}
+      transition={live !== null || reduce ? { duration: 0 } : { duration: 0.2, ease: [0.25, 0.8, 0.25, 1] }}
+      // Terminals hold their rows / columns while this slides and refit once at the end.
+      onAnimationStart={() => live === null && beginLayoutAnimation()}
+      onAnimationComplete={() => live === null && endLayoutAnimation()}
       className="relative shrink-0 overflow-hidden"
     >
       <div
@@ -103,16 +121,16 @@ export function Dock({ side }: { side: DockSide }) {
       />
       <div style={{ width: w }} className="relative h-full">
         <AnimatePresence initial={false} mode="popLayout">
-          {shown && (
+          {content && (
             <motion.div
-              key={shown}
+              key={content}
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -6 }}
               transition={{ duration: 0.16, ease: [0.2, 0.8, 0.2, 1] }}
               className="absolute inset-0 flex flex-col"
             >
-              {VIEWS[shown].render()}
+              <ErrorBoundary key={content} label={VIEWS[content].label}>{VIEWS[content].render()}</ErrorBoundary>
             </motion.div>
           )}
         </AnimatePresence>

@@ -15,6 +15,7 @@ import { Input, Label } from "@/components/ui/input";
 import { ipc, type PortInfo } from "@/lib/ipc";
 import { cn } from "@/lib/utils";
 import { allGroups, type Profile, type SerialProfile, type SshProfile, useApp } from "@/store/app";
+import { ProxyEditorDialog, ProxyPicker } from "./proxy";
 
 export function Dialogs() {
   return (
@@ -22,6 +23,7 @@ export function Dialogs() {
       <ProfileEditor />
       <SecretPrompt />
       <HostKeyDialog />
+      <ProxyEditorDialog />
     </>
   );
 }
@@ -165,7 +167,7 @@ function ProfileEditor() {
           </DialogTitle>
           <DialogDescription>
             {p.kind === "ssh"
-              ? "Passwords are only stored if you choose to, in the OS keychain."
+              ? "You'll be asked for a password when connecting, if the server needs one."
               : "Connect to a serial device (COM port / tty)."}
           </DialogDescription>
         </DialogHeader>
@@ -289,10 +291,18 @@ function SshFields({
           />
         </Field>
       )}
-      {p.auth.kind !== "agent" && (
-        <Check checked={!!p.remember} onChange={(v) => setP({ ...p, remember: v })}>
-          Remember {p.auth.kind === "key" ? "passphrase" : "password"} in the OS keychain
-        </Check>
+      {p.remember && p.auth.kind !== "agent" && (
+        <div className="-mt-1 flex items-center gap-2 text-[11.5px] text-muted-foreground">
+          <KeyRound className="size-3.5" />
+          <span className="flex-1">{p.auth.kind === "key" ? "Passphrase" : "Password"} saved in the OS keychain</span>
+          <button
+            type="button"
+            className="transition-colors hover:text-foreground"
+            onClick={() => setP({ ...p, remember: false })}
+          >
+            Forget
+          </button>
+        </div>
       )}
       <Field label="Jump host (ProxyJump)">
         <Select<string | null>
@@ -307,6 +317,9 @@ function SshFields({
             })),
           ]}
         />
+      </Field>
+      <Field label="Proxy">
+        <ProxyPicker value={p.proxy ?? null} onChange={(proxy) => setP({ ...p, proxy })} />
       </Field>
       <Field label="Local port forwarding (-L)">
         <div className="grid gap-1.5">
@@ -457,7 +470,7 @@ function SecretPrompt() {
 
   useEffect(() => {
     setValue("");
-    setRemember(false);
+    setRemember(!!prompt?.remembered);
   }, [prompt]);
   const isPass = prompt?.kind.toLowerCase().includes("passphrase");
   const retry = prompt?.message.toLowerCase().includes("wrong");

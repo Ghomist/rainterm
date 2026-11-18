@@ -14,7 +14,10 @@
     "core:window:allow-start-dragging",
     "core:window:allow-is-maximized",
     "dialog:default",
-    "opener:allow-open-path",
+    {
+      "identifier": "opener:allow-open-path",
+      "allow": [{ "path": "**" }, { "path": "**/*" }, { "path": "**/.*" }]
+    },
     "opener:allow-reveal-item-in-dir",
     "core:webview:allow-internal-toggle-devtools",
     "core:window:allow-destroy"

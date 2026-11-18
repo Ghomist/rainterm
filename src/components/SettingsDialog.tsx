@@ -1,4 +1,4 @@
-import { Keyboard, Lock, Palette, Plus, RotateCcw, Sparkles, SquareTerminal, Trash2 } from "lucide-react";
+import { Globe, Keyboard, Lock, Palette, Plus, RotateCcw, Sparkles, SquareTerminal, Trash2 } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -7,17 +7,20 @@ import { Input, Label } from "@/components/ui/input";
 import { type HighlightRule, ipc } from "@/lib/ipc";
 import { DEFAULT_FONT, RULE_NAMES, SGR_COLORS, sha256Hex } from "@/lib/settings";
 import { darkThemes, lightThemes, type TermThemeDef } from "@/lib/term-theme";
+import { toast } from "@/lib/overlay";
 import { cn } from "@/lib/utils";
 import { useApp } from "@/store/app";
 import { NumberInput, Select, Slider, Switch } from "@/components/ui/controls";
 import { Check, Field, Segmented } from "./dialogs";
+import { NetworkSection } from "./proxy";
 import { KeyboardSection } from "./settings-keyboard";
 
-type Section = "appearance" | "terminal" | "highlight" | "keyboard" | "security";
+type Section = "appearance" | "terminal" | "network" | "highlight" | "keyboard" | "security";
 
 const sections: { id: Section; label: string; icon: React.ReactNode }[] = [
   { id: "appearance", label: "Appearance", icon: <Palette /> },
   { id: "terminal", label: "Terminal", icon: <SquareTerminal /> },
+  { id: "network", label: "Network", icon: <Globe /> },
   { id: "highlight", label: "Highlighting", icon: <Sparkles /> },
   { id: "keyboard", label: "Shortcuts", icon: <Keyboard /> },
   { id: "security", label: "Security", icon: <Lock /> },
@@ -30,7 +33,7 @@ export function SettingsDialog() {
 
   return (
     <Dialog open={open} onOpenChange={(o) => set({ settingsOpen: o })}>
-      <DialogContent className="h-[min(560px,calc(100vh-4rem))] max-w-[min(760px,calc(100%-2rem))] grid-cols-[180px_1fr] gap-0 p-0">
+      <DialogContent className="h-[min(660px,calc(100vh-4rem))] max-w-[min(880px,calc(100%-2rem))] grid-cols-[180px_1fr] gap-0 p-0">
         <nav className="flex flex-col gap-0.5 border-r border-border p-2 pt-4">
           <DialogTitle className="px-2.5 pb-3 text-[13px]">Settings</DialogTitle>
           {sections.map((s) => (
@@ -67,6 +70,7 @@ export function SettingsDialog() {
           >
             {section === "appearance" && <Appearance />}
             {section === "terminal" && <TerminalSection />}
+            {section === "network" && <NetworkSection />}
             {section === "highlight" && <HighlightSection />}
             {section === "keyboard" && <KeyboardSection />}
             {section === "security" && <Security />}
@@ -146,6 +150,7 @@ function Appearance() {
           ))}
         </div>
       </Field>
+      <BackgroundField />
       <Field label="Font family">
         <div className="flex gap-1.5">
           <Input
@@ -189,7 +194,78 @@ function Appearance() {
       <Check checked={s.mica} onChange={(v) => void update({ mica: v })}>
         Window translucency (Mica, Windows 11)
       </Check>
+      <Check checked={s.reduceEffects} onChange={(v) => void update({ reduceEffects: v })}>
+        Reduce animations and effects (smoother on integrated graphics)
+      </Check>
     </>
+  );
+}
+
+function BackgroundField() {
+  const [s, update] = useSettings();
+  const pick = async () => {
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    const picked = await open({
+      title: "Background picture",
+      filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "webp", "gif", "bmp", "avif"] }],
+    });
+    if (!picked || Array.isArray(picked)) return;
+    try {
+      const path = await ipc.backdropImport(picked);
+      await update({ backdrop: "image", backdropImage: path });
+    } catch (e) {
+      toast({ kind: "error", title: "Couldn't use that picture", description: String(e) });
+    }
+  };
+  const fileName = s.backdropImage?.split(/[\\/]/).pop()?.replace(/-\d+(\.\w+)$/, "$1");
+  return (
+    <div className="grid gap-3 rounded-lg border border-ov/[0.07] bg-ov/[0.02] p-3">
+      <Field label="Background">
+        <Segmented
+          value={s.backdrop}
+          options={[
+            { value: "none", label: "Solid color" },
+            { value: "weather", label: "Rain / rainbow" },
+            { value: "image", label: "Picture" },
+          ]}
+          onChange={(v) => (v === "image" && !s.backdropImage ? void pick() : void update({ backdrop: v }))}
+        />
+      </Field>
+      {s.backdrop === "weather" && (
+        <>
+          <p className="-mt-1 text-[12px] text-muted-foreground">
+            Dark themes: a rainy night through the window, rain running down the glass and pooling below. Light
+            themes: a rainbow after the rain. It stays behind the text and pauses while the window is hidden.
+          </p>
+          <Field label={`Liveliness · ${Math.round(s.weatherIntensity * 100)}%`}>
+            <Slider min={0.2} max={1} step={0.05} value={s.weatherIntensity} onChange={(weatherIntensity) => void update({ weatherIntensity })} />
+          </Field>
+        </>
+      )}
+      {s.backdrop === "image" && (
+        <>
+          <div className="flex items-center gap-2">
+            <span className="min-w-0 flex-1 truncate text-[12px] text-muted-foreground">{fileName ?? "No picture chosen"}</span>
+            <Button size="sm" variant="outline" onClick={() => void pick()}>
+              Choose picture…
+            </Button>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label={`Dim · ${Math.round(s.backdropDim * 100)}%`}>
+              <Slider min={0} max={0.9} step={0.05} value={s.backdropDim} onChange={(backdropDim) => void update({ backdropDim })} />
+            </Field>
+            <Field label={`Blur · ${s.backdropBlur}px`}>
+              <Slider min={0} max={24} step={1} value={s.backdropBlur} onChange={(backdropBlur) => void update({ backdropBlur })} />
+            </Field>
+          </div>
+        </>
+      )}
+      {s.backdrop !== "none" && (
+        <Field label={`Terminal glass · ${Math.round(s.glassOpacity * 100)}% opaque`}>
+          <Slider min={0.3} max={0.97} step={0.01} value={s.glassOpacity} onChange={(glassOpacity) => void update({ glassOpacity })} />
+        </Field>
+      )}
+    </div>
   );
 }
 
@@ -319,7 +395,7 @@ function HighlightSection() {
       <div className="grid gap-1.5">
         {rules.map((r, i) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: editable rows
-          <div key={i} className="grid grid-cols-[auto_110px_1fr_96px_auto] items-center gap-1.5">
+          <div key={i} className="grid grid-cols-[auto_120px_1fr_124px_auto] items-center gap-1.5">
             <Switch
               checked={r.enabled}
               onChange={(enabled) => void commit(rules.map((x, j) => (j === i ? { ...x, enabled } : x)))}

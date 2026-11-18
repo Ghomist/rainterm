@@ -36,6 +36,9 @@ on macOS right-click the app → Open the first time.
 - Passwords optionally stored in the OS keychain; never written to disk
 - known_hosts verification with a fingerprint prompt; changed keys are refused
 - Jump host (ProxyJump), local port forwarding (-L)
+- **Proxies**: SOCKS5 / HTTP CONNECT (with optional login), saved once in Settings → Network and
+  reused per session, plus a default proxy for every SSH connection
+- Live round-trip latency of connected servers in the status bar
 - **Import from `~/.ssh/config`** (Host/HostName/User/Port/IdentityFile/ProxyJump, `Include`, wildcards)
 - Quick connect: type `user@host[:port]` in the sidebar search or the command palette
 - **Session groups**: create / rename groups, drag sessions between them, connect a whole group
@@ -59,11 +62,15 @@ Monitor, Ports, Containers, Kubernetes on the right. Ctrl+Shift+B hides both.
 - Open & edit remote files: changes are uploaded every time you save
 
 **App**
+- **Backgrounds** (off by default): an animated rainy window — rain beyond the glass, drops
+  running down it, ripples in the puddle below — that turns into a rainbow after the rain on
+  light themes; or your own picture with dim / blur. Terminals become adjustable "glass" over it
 - 16 themes (Catppuccin, One Dark/Light, Nord, Dracula, Tokyo Night, Gruvbox, Solarized, GitHub…),
   dark / light / follow system; optional Mica translucency on Windows 11
 - Restores tabs and splits on launch, remembers window size, asks before closing live remote sessions
 - Command palette (Ctrl+Shift+P), lock screen with idle auto-lock (Ctrl+Shift+L)
 - Every shortcut is configurable (Settings → Shortcuts)
+- "Reduce animations and effects" for smoother running on integrated graphics
 
 ## Keyboard shortcuts
 
