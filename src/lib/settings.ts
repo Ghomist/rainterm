@@ -62,6 +62,16 @@ export interface McpSettings {
 
 export const DEFAULT_MCP: McpSettings = { enabled: false, host: "127.0.0.1", port: 7323, token: "", autonomy: "confirm" };
 
+/** What the little badge on each command row shows (click it to copy the output). */
+export interface BlockBadges {
+  exitCode: boolean;
+  duration: boolean;
+  /** When the command was started. */
+  startTime: boolean;
+}
+
+export const DEFAULT_BADGES: BlockBadges = { exitCode: true, duration: true, startTime: false };
+
 /** Behind the terminals: plain color, the animated weather scene, or the user's picture. */
 export type Backdrop = "none" | "weather" | "image";
 
@@ -140,6 +150,13 @@ export interface Settings {
   glassOpacity: number;
   agent: AgentSettings;
   mcp: McpSettings;
+  blockBadges: BlockBadges;
+  /** Pin the command whose output fills the screen to the top of the terminal. */
+  stickyCommand: boolean;
+  /** Notify when a command that ran at least this many seconds finishes out of sight; 0 = off. */
+  notifyAfterSeconds: number;
+  /** Reconnect SSH sessions by themselves when the connection drops. */
+  autoReconnect: boolean;
 }
 
 export const DEFAULT_FONT =
@@ -195,6 +212,10 @@ export const DEFAULT_SETTINGS: Settings = {
   glassOpacity: 0.6,
   agent: DEFAULT_AGENT,
   mcp: DEFAULT_MCP,
+  blockBadges: DEFAULT_BADGES,
+  stickyCommand: true,
+  notifyAfterSeconds: 10,
+  autoReconnect: true,
 };
 
 /** Every view exactly once, each in a dock; new views land in their default dock. */

@@ -226,6 +226,7 @@ export function ComboInput({
   placeholder,
   numeric,
   className,
+  autoFocus,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -233,11 +234,13 @@ export function ComboInput({
   placeholder?: string;
   numeric?: boolean;
   className?: string;
+  autoFocus?: boolean;
 }) {
   return (
     <DM.Root>
       <div className={cn(fieldBase, "pr-0 focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-ring/40", className)}>
         <input
+          autoFocus={autoFocus}
           value={value}
           placeholder={placeholder}
           inputMode={numeric ? "numeric" : undefined}

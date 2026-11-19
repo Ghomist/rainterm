@@ -4,6 +4,7 @@ import {
   ArrowUp,
   Cable,
   Columns2,
+  KeyRound,
   Maximize2,
   Minimize2,
   RotateCw,
@@ -33,6 +34,7 @@ import { AgentBar } from "./AgentBar";
 import { Backdrop } from "./Backdrop";
 import { Gutter, gutterWidth } from "./Gutter";
 import { Latency } from "./Latency";
+import { openInstallKey } from "./SshKeys";
 import { SuggestOverlay } from "./Suggest";
 import { StatusDot } from "./StatusDot";
 
@@ -277,23 +279,54 @@ function TerminalPane({
             </div>
             <div className="min-w-0 flex-1">
               <div className="text-[13px] font-medium">
-                {pane.status === "error" ? "Connection failed" : "Session ended"}
+                {pane.retry ? "Connection lost" : pane.status === "error" ? "Connection failed" : "Session ended"}
               </div>
               <div className="mt-0.5 text-[12px] break-words text-muted-foreground select-text">
-                {pane.status === "error"
-                  ? pane.error
-                  : `Process exited${pane.exitCode != null ? ` with code ${pane.exitCode}` : ""}.`}
+                {pane.retry ? (
+                  <RetryCountdown retry={pane.retry} error={pane.status === "error" ? pane.error : undefined} />
+                ) : pane.status === "error" ? (
+                  pane.error
+                ) : (
+                  `Process exited${pane.exitCode != null ? ` with code ${pane.exitCode}` : ""}.`
+                )}
               </div>
             </div>
+            {pane.retry && (
+              <Button size="sm" variant="ghost" onClick={() => useApp.getState().cancelRetry(pane.id)}>
+                Stop
+              </Button>
+            )}
             <Button size="sm" variant="secondary" onClick={() => reconnect(pane.id)}>
               <RotateCw className="size-3.5" />
-              Reconnect
+              {pane.retry ? "Now" : "Reconnect"}
               <Kbd className="ml-0.5 h-4 bg-transparent">↵</Kbd>
             </Button>
           </motion.div>
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+/** "Reconnecting in 8s (attempt 3)": ticks once a second. */
+function RetryCountdown({ retry, error }: { retry: { attempt: number; at: number }; error?: string }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const t = window.setInterval(() => setNow(Date.now()), 500);
+    return () => clearInterval(t);
+  }, []);
+  const left = Math.max(0, Math.ceil((retry.at - now) / 1000));
+  const offline = typeof navigator !== "undefined" && !navigator.onLine;
+  return (
+    <>
+      {offline
+        ? "Waiting for the network to come back…"
+        : left > 0
+          ? `Reconnecting in ${left}s`
+          : "Reconnecting…"}
+      {retry.attempt > 1 && ` (attempt ${retry.attempt})`}
+      {error && <span className="mt-0.5 block text-[11.5px] opacity-75">{error}</span>}
+    </>
   );
 }
 
@@ -407,6 +440,11 @@ export function PaneMenu({ pane, multi, zoomed }: { pane: Pane; multi: boolean; 
           })}
         >
           <Sparkles /> Enable shell integration
+        </ContextMenuItem>
+      )}
+      {pane.kind === "ssh" && pane.session.alive && (
+        <ContextMenuItem onSelect={() => openInstallKey({ paneId: pane.id })}>
+          <KeyRound /> Install my public key here…
         </ContextMenuItem>
       )}
       {!pane.session.alive && (

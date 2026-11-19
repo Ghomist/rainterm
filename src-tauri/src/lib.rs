@@ -6,6 +6,7 @@ mod llm;
 mod mcp;
 mod highlight;
 mod history;
+mod keys;
 mod monitor;
 mod session;
 mod ssh_config;
@@ -239,6 +240,37 @@ async fn ssh_ping(sessions: S<'_>, session_id: String) -> CmdResult<f64> {
 }
 
 #[tauri::command]
+async fn ssh_keys_list() -> CmdResult<Vec<keys::KeyInfo>> {
+    tauri::async_runtime::spawn_blocking(keys::list).await.map_err(|e| e.to_string())?.map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+async fn ssh_key_generate(name: String, comment: String, passphrase: Option<String>) -> CmdResult<keys::KeyInfo> {
+    // bcrypt-pbkdf takes a moment: off the async runtime.
+    tauri::async_runtime::spawn_blocking(move || keys::generate(&name, &comment, passphrase.as_deref()))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| format!("{e:#}"))
+}
+
+/// Like `ssh-copy-id`: add a public key to ~/.ssh/authorized_keys on a connected server.
+/// Returns "added" or "present".
+#[tauri::command]
+async fn ssh_copy_id(sessions: S<'_>, session_id: String, public_key: String) -> CmdResult<String> {
+    let conn = sessions.ssh(&session_id)?;
+    let cmd = keys::copy_id_command(&public_key).map_err(|e| format!("{e:#}"))?;
+    let (code, out, err) = conn
+        .exec_full(&cmd, std::time::Duration::from_secs(20))
+        .await
+        .map_err(|e| format!("{e:#}"))?;
+    let out = out.trim().to_string();
+    if code != 0 || (out != "added" && out != "present") {
+        return Err(if err.trim().is_empty() { format!("the server answered: {out}") } else { err.trim().to_string() });
+    }
+    Ok(out)
+}
+
+#[tauri::command]
 async fn system_proxy() -> proxy::SystemProxy {
     tauri::async_runtime::spawn_blocking(proxy::system_proxy).await.unwrap_or_default()
 }
@@ -267,6 +299,32 @@ fn default_highlight_rules() -> Value {
         .map(|r| serde_json::json!({ "pattern": r.pattern, "sgr": r.sgr, "enabled": r.enabled }))
         .collect();
     Value::Array(rules)
+}
+
+// ------------------------------------------------------------------ backup files
+
+/// Read a JSON file the user picked (settings import). Small JSON files only.
+#[tauri::command]
+fn text_file_read(path: String) -> CmdResult<String> {
+    let p = std::path::Path::new(&path);
+    if p.extension().and_then(|e| e.to_str()).map(|e| e.eq_ignore_ascii_case("json")) != Some(true) {
+        return Err("only .json files".into());
+    }
+    let meta = std::fs::metadata(p).map_err(|e| e.to_string())?;
+    if meta.len() > 8 * 1024 * 1024 {
+        return Err("file is too large".into());
+    }
+    std::fs::read_to_string(p).map_err(|e| e.to_string())
+}
+
+/// Write a JSON file the user picked (settings export).
+#[tauri::command]
+fn text_file_write(path: String, text: String) -> CmdResult<()> {
+    let p = std::path::Path::new(&path);
+    if p.extension().and_then(|e| e.to_str()).map(|e| e.eq_ignore_ascii_case("json")) != Some(true) {
+        return Err("only .json files".into());
+    }
+    std::fs::write(p, text).map_err(|e| e.to_string())
 }
 
 // ------------------------------------------------------------------ files
@@ -504,11 +562,17 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         // Remember window size / position / maximized state between launches.
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .manage(Sessions::default())
         .invoke_handler(tauri::generate_handler![
             list_shells,
+            ssh_keys_list,
+            ssh_key_generate,
+            ssh_copy_id,
+            text_file_read,
+            text_file_write,
             list_serial_ports,
             open_local,
             open_ssh,

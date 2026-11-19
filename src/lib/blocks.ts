@@ -33,6 +33,10 @@ export interface Block {
   end: IMarker | null;
   fold: Fold | null;
   startedAt: number;
+  /** When the command finished (its next prompt appeared); null while running / unknown. */
+  finishedAt: number | null;
+  /** The prompt text on the command's row (prompt detection without shell integration). */
+  promptText: string;
   /** Row the cursor was on when Enter was pressed = last row of the command, however the
    *  shell wrapped or redrew it. Output starts on the row after. */
   inputEnd: IMarker | null;
@@ -66,6 +70,9 @@ export class Blocks {
   private listeners = new Set<() => void>();
   private promptListeners = new Set<(line: number) => void>();
   private commandListeners = new Set<(command: string, block: Block) => void>();
+  private finishListeners = new Set<(block: Block, quiet: boolean) => void>();
+  /** Date.now() of the last output written to the terminal. */
+  private lastWriteAt = 0;
   // Fallback prompt detection: the line as it looked when output settled, before typing.
   private idle: { line: number; col: number; text: string } | null = null;
   /** Text of the most recent prompt line (any row) — catches empty Enters fast. */
@@ -89,6 +96,7 @@ export class Blocks {
           if (end && end.line > last.marker.line) last.end = end;
           else end?.dispose();
         }
+        if (last) this.finish(last, Date.now());
         this.inputStart?.mark.dispose();
         this.inputStart = null;
         const m = this.term.registerMarker(0) ?? null;
@@ -105,12 +113,14 @@ export class Blocks {
         // Exit code of the command entered at the previous prompt (if it was a block).
         const code = Number(data.split(";")[1]);
         if (this.awaitD && Number.isFinite(code)) this.awaitD.exitCode = code;
+        if (this.awaitD) this.finish(this.awaitD, Date.now());
         this.awaitD = null;
         this.emit();
       }
       return false;
     });
     term.onWriteParsed(() => {
+      this.lastWriteAt = Date.now();
       if (!this.idleArmed) return;
       if (this.idleTimer !== null) clearTimeout(this.idleTimer);
       this.idleTimer = window.setTimeout(() => {
@@ -120,6 +130,7 @@ export class Blocks {
         const line = buf.baseY + buf.cursorY;
         this.idle = { line, col: buf.cursorX, text: buf.getLine(line)?.translateToString(true) ?? "" };
         if (this.idle.text.trim()) this.lastPrompt = this.idle.text.trimEnd();
+        this.guessFinished();
       }, 150);
     });
     // Reflow changes which rows are wrapped; trimming the scrollback shifts indices.
@@ -149,6 +160,38 @@ export class Blocks {
   onCommand(fn: (command: string, block: Block) => void) {
     this.commandListeners.add(fn);
     return () => this.commandListeners.delete(fn);
+  }
+
+  /** Called once per command when it finishes. `quiet`: only learned late (the next
+   *  command was already typed), so not worth announcing. */
+  onFinish(fn: (block: Block, quiet: boolean) => void) {
+    this.finishListeners.add(fn);
+    return () => this.finishListeners.delete(fn);
+  }
+
+  private finish(b: Block, at: number, quiet = false) {
+    if (b.finishedAt !== null) return;
+    b.finishedAt = Math.max(b.startedAt, at);
+    for (const fn of this.finishListeners) fn(b, quiet);
+    this.emit();
+  }
+
+  /**
+   * Without shell integration: output went quiet and the cursor sits on a fresh line that
+   * looks like the prompt the last command was typed at → that command is done.
+   */
+  private guessFinished() {
+    if (this.integrated || !this.idle) return;
+    const b = this.list.at(-1);
+    if (!b || b.finishedAt !== null || !live(b.marker) || !b.promptText) return;
+    const after = live(b.inputEnd) ? b.inputEnd.line : b.marker.line;
+    if (this.idle.line <= after) return;
+    const t = this.idle.text.slice(0, this.idle.col).trimEnd();
+    const p = b.promptText;
+    // Same prompt, or one that changed (cwd, clock) but ends the same way at the cursor.
+    const tail = (x: string) => x.slice(-2);
+    if (t === p || (t.length >= 2 && tail(t) === tail(p) && this.idle.text.trimEnd().length <= this.idle.col + 1))
+      this.finish(b, this.lastWriteAt);
   }
 
   private emit() {
@@ -273,12 +316,18 @@ export class Blocks {
     }
     // The block starts at the first row of the command (it may have wrapped).
     let row = cursor;
-    if (this.inputStart && live(this.inputStart.mark) && this.inputStart.mark.line <= cursor) row = this.inputStart.mark.line;
-    else if (this.idle && this.idle.line <= cursor) row = this.idle.line;
-    this.mark(row, cursor, input?.text.trim() ?? "");
+    let promptText = "";
+    if (this.inputStart && live(this.inputStart.mark) && this.inputStart.mark.line <= cursor) {
+      row = this.inputStart.mark.line;
+      promptText = (buf.getLine(row)?.translateToString(false) ?? "").slice(0, this.inputStart.col).trimEnd();
+    } else if (this.idle && this.idle.line <= cursor) {
+      row = this.idle.line;
+      promptText = this.idle.text.slice(0, this.idle.col).trimEnd();
+    }
+    this.mark(row, cursor, input?.text.trim() ?? "", promptText);
   }
 
-  private mark(row: number, cursor: number, command: string) {
+  private mark(row: number, cursor: number, command: string, promptText = "") {
     this.idleArmed = true;
     this.idle = null;
     this.inputStart?.mark.dispose();
@@ -287,11 +336,13 @@ export class Blocks {
     if (last && live(last.marker) && last.marker.line >= row) return;
     const marker = this.term.registerMarker(row - cursor);
     if (!marker) return;
+    // The previous command can't still be running at a prompt we are typing into.
+    if (last) this.finish(last, Math.min(this.lastWriteAt, Date.now()), true);
     const prompt = live(this.pending) && this.pending.line <= row ? this.pending : null;
     if (live(this.pending) && !prompt) this.pending.dispose();
     this.pending = null;
     const inputEnd = cursor > row ? (this.term.registerMarker(0) ?? null) : null;
-    const block: Block = { marker, command, prompt, exitCode: null, end: null, fold: null, startedAt: Date.now(), inputEnd };
+    const block: Block = { marker, command, prompt, exitCode: null, end: null, fold: null, startedAt: Date.now(), finishedAt: null, promptText, inputEnd };
     marker.onDispose(() => {
       const i = this.list.indexOf(block);
       if (i >= 0) this.list.splice(i, 1);
@@ -549,12 +600,65 @@ export class Blocks {
     return out.join("\n").replace(/\n+$/, "");
   }
 
-  /** Scroll to the previous/next command line relative to the viewport top. */
+  /** Plain text of block i's output only (folded content included). */
+  output(i: number) {
+    const b = this.list[i];
+    if (!b) return "";
+    const buf = this.term.buffer.active;
+    const out: string[] = [];
+    if (b.fold) {
+      for (const l of b.fold.lines as Any[]) out.push(l.translateToString(true));
+    } else {
+      const r = this.range(i);
+      if (r) for (let l = r.start; l <= r.end; l++) out.push(buf.getLine(l)?.translateToString(true) ?? "");
+    }
+    return joinRows(out, b.fold ? (b.fold.lines as Any[]) : null, buf, this.range(i)?.start ?? 0).replace(/\n+$/, "");
+  }
+
+  /** The command row of the last block that starts above `abs` and whose output covers it. */
+  blockCovering(abs: number) {
+    for (let i = this.list.length - 1; i >= 0; i--) {
+      const b = this.list[i];
+      if (!live(b.marker) || b.marker.line > abs) continue;
+      if (b.marker.line === abs) return i;
+      const r = this.range(i);
+      if (!r) return i; // still running: everything below is its output
+      return r.end >= abs ? i : -1;
+    }
+    return -1;
+  }
+
+  private flashListeners = new Set<(block: number) => void>();
+
+  /** Called with a block index when a jump lands on it (for a brief highlight). */
+  onFlash(fn: (block: number) => void) {
+    this.flashListeners.add(fn);
+    return () => this.flashListeners.delete(fn);
+  }
+
+  /**
+   * Scroll the previous/next command line to the top of the screen. Scrolled all the way
+   * down, "previous" is the latest command above the cursor, even if it's on screen.
+   */
   jump(dir: -1 | 1) {
-    const top = this.term.buffer.active.viewportY;
-    const lines = this.list.filter((b) => !b.marker.isDisposed).map((b) => b.marker.line);
-    const target = dir < 0 ? lines.filter((l) => l < top).at(-1) : lines.find((l) => l > top);
-    if (target !== undefined) this.term.scrollToLine(target);
+    const buf = this.term.buffer.active;
+    const atBottom = buf.viewportY >= buf.baseY;
+    const ref = dir < 0 && atBottom ? buf.baseY + buf.cursorY : buf.viewportY;
+    const idx = this.list.map((b, i) => [b, i] as const).filter(([b]) => live(b.marker));
+    const hit = dir < 0 ? idx.filter(([b]) => b.marker.line < ref).at(-1) : idx.find(([b]) => b.marker.line > ref);
+    if (!hit) {
+      if (dir > 0) this.term.scrollToBottom();
+      return;
+    }
+    this.scrollTo(hit[1]);
+  }
+
+  /** Bring block i's command line to the top of the screen and highlight it briefly. */
+  scrollTo(i: number) {
+    const b = this.list[i];
+    if (!b || !live(b.marker)) return;
+    this.term.scrollToLine(b.marker.line);
+    for (const fn of this.flashListeners) fn(i);
   }
 
   private sync() {
@@ -568,4 +672,14 @@ export class Blocks {
     }
     this.emit();
   }
+}
+
+/** Rows → text, joining soft-wrapped rows into one line. */
+function joinRows(rows: string[], lines: Any[] | null, buf: Any, start: number) {
+  let out = "";
+  for (let k = 0; k < rows.length; k++) {
+    const wrappedNext = lines ? !!lines[k + 1]?.isWrapped : !!buf.getLine(start + k + 1)?.isWrapped;
+    out += rows[k] + (wrappedNext && k + 1 < rows.length ? "" : "\n");
+  }
+  return out;
 }

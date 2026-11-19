@@ -12,9 +12,10 @@ import {
 } from "@/components/ui/dialog";
 import { ComboInput, NumberInput, Select, Switch } from "@/components/ui/controls";
 import { Input, Label } from "@/components/ui/input";
-import { ipc, type PortInfo } from "@/lib/ipc";
+import { type Forward, type ForwardKind, ipc, type PortInfo } from "@/lib/ipc";
 import { cn } from "@/lib/utils";
 import { allGroups, type Profile, type SerialProfile, type SshProfile, useApp } from "@/store/app";
+import { Tooltip } from "@/components/ui/tooltip";
 import { ProxyEditorDialog, ProxyPicker } from "./proxy";
 
 export function Dialogs() {
@@ -321,68 +322,8 @@ function SshFields({
       <Field label="Proxy">
         <ProxyPicker value={p.proxy ?? null} onChange={(proxy) => setP({ ...p, proxy })} />
       </Field>
-      <Field label="Local port forwarding (-L)">
-        <div className="grid gap-1.5">
-          {p.forwards.map((f, i) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: editable rows
-            <div key={i} className="grid grid-cols-[92px_auto_1fr_92px_auto] items-center gap-1.5">
-              <NumberInput
-                placeholder="local"
-                min={0}
-                max={65535}
-                value={f.localPort || null}
-                onChange={(localPort) => {
-                  const forwards = [...p.forwards];
-                  forwards[i] = { ...f, localPort };
-                  setP({ ...p, forwards });
-                }}
-              />
-              <span className="text-muted-foreground">→</span>
-              <Input
-                placeholder="remote host"
-                value={f.remoteHost}
-                onChange={(e) => {
-                  const forwards = [...p.forwards];
-                  forwards[i] = { ...f, remoteHost: e.target.value };
-                  setP({ ...p, forwards });
-                }}
-              />
-              <NumberInput
-                placeholder="port"
-                min={0}
-                max={65535}
-                value={f.remotePort || null}
-                onChange={(remotePort) => {
-                  const forwards = [...p.forwards];
-                  forwards[i] = { ...f, remotePort };
-                  setP({ ...p, forwards });
-                }}
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                onClick={() => setP({ ...p, forwards: p.forwards.filter((_, j) => j !== i) })}
-              >
-                <Trash2 className="size-3.5" />
-              </Button>
-            </div>
-          ))}
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="justify-self-start"
-            onClick={() =>
-              setP({
-                ...p,
-                forwards: [...p.forwards, { localPort: 0, remoteHost: "127.0.0.1", remotePort: 0 }],
-              })
-            }
-          >
-            <Plus className="size-3.5" /> Add forward
-          </Button>
-        </div>
+      <Field label="Port forwarding">
+        <ForwardsEditor value={p.forwards} onChange={(forwards) => setP({ ...p, forwards })} />
       </Field>
     </>
   );
@@ -578,5 +519,82 @@ function HostKeyDialog() {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+const FORWARD_KINDS: { value: ForwardKind; label: string; hint: string }[] = [
+  { value: "local", label: "Local  -L", hint: "A port here reaches a host:port from the server" },
+  { value: "remote", label: "Remote  -R", hint: "A port on the server reaches a host:port from here" },
+  { value: "dynamic", label: "SOCKS  -D", hint: "A SOCKS5 proxy here; traffic leaves from the server" },
+];
+
+/** -L / -R / -D rules of an SSH session (started with every connection). */
+function ForwardsEditor({ value, onChange }: { value: Forward[]; onChange: (v: Forward[]) => void }) {
+  const set = (i: number, patch: Partial<Forward>) => onChange(value.map((f, j) => (j === i ? { ...f, ...patch } : f)));
+  const port = (v: number | null | undefined) => v || null;
+  return (
+    <div className="grid gap-1.5">
+      {value.map((f, i) => {
+        const kind = f.kind ?? "local";
+        return (
+          // biome-ignore lint/suspicious/noArrayIndexKey: editable rows
+          <div key={i} className="grid grid-cols-[112px_minmax(0,1fr)_auto] items-center gap-1.5">
+            <Select
+              value={kind}
+              onChange={(k) => set(i, { kind: k })}
+              options={FORWARD_KINDS.map((k) => ({ value: k.value, label: k.label, hint: k.hint }))}
+            />
+            {kind === "dynamic" ? (
+              <div className="flex min-w-0 items-center gap-1.5">
+                <span className="shrink-0 text-[11.5px] text-muted-foreground">SOCKS5 on 127.0.0.1 :</span>
+                <NumberInput placeholder="1080" min={1} max={65535} value={port(f.localPort)} onChange={(localPort) => set(i, { localPort })} />
+              </div>
+            ) : kind === "remote" ? (
+              <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_76px_auto_minmax(0,1fr)_76px] items-center gap-1">
+                <Tooltip content="Address the server listens on (127.0.0.1 = only the server itself)">
+                  <Input placeholder="127.0.0.1" value={f.remoteHost} onChange={(e) => set(i, { remoteHost: e.target.value })} />
+                </Tooltip>
+                <NumberInput placeholder="server port" min={0} max={65535} value={port(f.remotePort)} onChange={(remotePort) => set(i, { remotePort })} />
+                <span className="text-muted-foreground">→</span>
+                <Input placeholder="127.0.0.1" value={f.localHost ?? "127.0.0.1"} onChange={(e) => set(i, { localHost: e.target.value })} />
+                <NumberInput placeholder="local port" min={1} max={65535} value={port(f.localPort)} onChange={(localPort) => set(i, { localPort })} />
+              </div>
+            ) : (
+              <div className="grid min-w-0 grid-cols-[76px_auto_minmax(0,1fr)_76px] items-center gap-1">
+                <NumberInput placeholder="local" min={0} max={65535} value={port(f.localPort)} onChange={(localPort) => set(i, { localPort })} />
+                <span className="text-muted-foreground">→</span>
+                <Input placeholder="remote host" value={f.remoteHost} onChange={(e) => set(i, { remoteHost: e.target.value })} />
+                <NumberInput placeholder="port" min={0} max={65535} value={port(f.remotePort)} onChange={(remotePort) => set(i, { remotePort })} />
+              </div>
+            )}
+            <Button type="button" variant="ghost" size="icon-sm" onClick={() => onChange(value.filter((_, j) => j !== i))}>
+              <Trash2 className="size-3.5" />
+            </Button>
+          </div>
+        );
+      })}
+      <div className="flex flex-wrap gap-1.5">
+        {FORWARD_KINDS.map((k) => (
+          <Button
+            key={k.value}
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              onChange([
+                ...value,
+                k.value === "dynamic"
+                  ? { kind: "dynamic", localPort: 1080, remoteHost: "", remotePort: 0 }
+                  : k.value === "remote"
+                    ? { kind: "remote", localPort: 0, remoteHost: "127.0.0.1", remotePort: 0, localHost: "127.0.0.1" }
+                    : { kind: "local", localPort: 0, remoteHost: "127.0.0.1", remotePort: 0 },
+              ])
+            }
+          >
+            <Plus className="size-3.5" /> {k.label.split(/\s+/)[0]}
+          </Button>
+        ))}
+      </div>
+    </div>
   );
 }

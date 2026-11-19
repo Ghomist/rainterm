@@ -71,6 +71,9 @@ pub enum SessionEvent {
     /// prompts and reconnects with it.
     SecretRequired { kind: String, message: String },
     Error { message: String },
+    /// Something worth telling the user that doesn't end the session (e.g. a port forward
+    /// the server refused).
+    Notice { message: String },
     Exit { code: Option<i32> },
 }
 

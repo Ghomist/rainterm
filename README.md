@@ -23,6 +23,10 @@ on macOS right-click the app → Open the first time.
 - Local shells (PowerShell, cmd, WSL, Git Bash; your login shell on macOS/Linux), SSH, serial ports
 - Tabs (drag to reorder, rename, duplicate) and split panes with draggable dividers, maximize/restore
 - Line numbers, **command blocks & output folding** (shell integration via OSC 133, with a fallback for any shell)
+- A **badge on every command**: exit code, duration, start time (pick which in Settings) — click it to copy
+  that command's output; the command whose output fills the screen **stays pinned at the top**
+- **Notifications** when a long command finishes while you're in another tab or app (the tab gets a ✓ / ✗)
+- **Inline images** (sixel and the iTerm2 protocol: `imgcat`, `chafa`, plotting backends…)
 - **Smart keyword highlighting** (errors, warnings, IPs, URLs, dates…) done in the Rust output pipeline;
   leaves already-colored text and full-screen apps alone; rules are editable
 - **Input groups**: put terminals in group A–D to type into all of them at once (across tabs);
@@ -37,7 +41,11 @@ on macOS right-click the app → Open the first time.
 - Passwords optionally stored in the OS keychain; never written to disk
 - known_hosts verification with a fingerprint prompt; a changed key gets a loud warning and can be
   replaced (like `ssh-keygen -R`, with a backup) after you confirm
-- Jump host (ProxyJump), local port forwarding (-L)
+- Jump host (ProxyJump); port forwarding: local (-L), remote (-R) and dynamic SOCKS5 (-D), started with
+  the session
+- **Auto-reconnect** when the connection drops (backoff, waits for the network to come back)
+- **SSH keys**: list `~/.ssh`, generate ed25519 keys, install a public key on a server in one click
+  (like `ssh-copy-id`) and switch the session to it
 - **Proxies**: SOCKS5 / HTTP CONNECT (with optional login), saved once in Settings → Network and
   reused per session, plus a default proxy for every SSH connection; or follow the **system proxy**
 - Live round-trip latency of connected servers in the status bar
@@ -66,7 +74,8 @@ Monitor, Ports, Containers, Kubernetes on the right. Ctrl+Shift+B hides both.
 - **Containers** (docker / podman): start, stop, restart, remove, follow logs, open a shell; **images**
   with a "Run container" dialog pre-filled from how earlier containers of that image were started
 - **Kubernetes** (kubectl): pods / deployments / services per namespace; logs, shell, describe, delete, rollout restart, scale
-- **Quick commands**: saved command lines (single or multi-line) sent to the terminal with one click
+- **Quick commands**: saved command lines (single or multi-line) sent to the terminal with one click;
+  blanks like `{{container}}`, `{{port:8080}}` or `{{env|dev|prod}}` are asked for (last values remembered)
 
 **File panel** (Ctrl+Shift+E)
 - Local files, or SFTP on the active SSH session — follows the terminal's `cd`
@@ -83,6 +92,7 @@ Monitor, Ports, Containers, Kubernetes on the right. Ctrl+Shift+B hides both.
   dark / light / follow system; optional Mica translucency on Windows 11
 - Restores tabs and splits on launch, remembers window size, asks before closing live remote sessions
 - Command palette (Ctrl+Shift+P), lock screen with idle auto-lock (Ctrl+Shift+L)
+- **Backup**: export / import sessions, quick commands and settings as one JSON file (no passwords)
 - Every shortcut is configurable (Settings → Shortcuts)
 - "Reduce animations and effects" for smoother running on integrated graphics
 

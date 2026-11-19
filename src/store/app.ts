@@ -21,10 +21,14 @@ import {
   sha256Hex,
   DEFAULT_AGENT,
   DEFAULT_MCP,
+  DEFAULT_BADGES,
   type ViewId,
 } from "@/lib/settings";
 import { SYSTEM_PROXY, systemProxySpec } from "@/lib/proxy-url";
+import type { Block } from "@/lib/blocks";
 import { type SessionSource, TermSession } from "@/lib/term-session";
+import { toast } from "@/lib/overlay";
+import { fmtDuration } from "@/lib/utils";
 
 // ------------------------------------------------------------------ model
 
@@ -83,6 +87,10 @@ export interface Pane {
   profileId?: string;
   /** Input group id: typing in one member goes to all members (any tab). */
   group: string | null;
+  /** A long command finished while you weren't looking (cleared when you look). */
+  attention?: "ok" | "fail" | null;
+  /** The SSH connection dropped and will be retried (auto-reconnect). */
+  retry?: { attempt: number; at: number } | null;
 }
 
 export const INPUT_GROUPS = [
@@ -173,6 +181,8 @@ interface AppState {
   connect(profile: Profile, opts?: { split?: "row" | "col" }): Promise<void>;
   quickConnect(spec: string): void;
   reconnect(paneId: string): void;
+  /** Stop retrying a dropped connection. */
+  cancelRetry(paneId: string): void;
   splitActive(dir: "row" | "col"): void;
   closePane(paneId: string): void;
   closeTab(tabId: string): void;
@@ -278,6 +288,44 @@ export const useApp: UseBoundStore<StoreApi<AppState>> =
   const tabOfPane = (paneId: string) =>
     get().tabs.find((t) => layoutPanes(t.layout).includes(paneId)) ?? null;
 
+  /** A long command finished out of sight: mark its tab and send a system notification. */
+  const commandDone = async (paneId: string, b: Block) => {
+    const min = get().settings.notifyAfterSeconds;
+    if (!min || b.finishedAt === null) return;
+    const ms = b.finishedAt - b.startedAt;
+    if (ms < min * 1000) return;
+    const tab = tabOfPane(paneId);
+    const pane = get().panes[paneId];
+    if (!tab || !pane) return;
+    const seen = document.hasFocus() && !document.hidden && get().activeTabId === tab.id;
+    if (seen) return;
+    const failed = b.exitCode !== null && b.exitCode !== 0;
+    patchPane(paneId, { attention: failed ? "fail" : "ok" });
+    if (document.hasFocus()) return; // another tab of this window: the tab mark is enough
+    try {
+      const n = await import("@tauri-apps/plugin-notification");
+      let ok = await n.isPermissionGranted();
+      if (!ok) ok = (await n.requestPermission()) === "granted";
+      if (!ok) return;
+      const cmd = b.command.length > 60 ? `${b.command.slice(0, 57)}…` : b.command || "Command";
+      n.sendNotification({
+        title: `${failed ? "✗" : "✓"} ${cmd}`,
+        body: `${failed ? `Failed (exit ${b.exitCode})` : "Finished"} after ${fmtDuration(ms)} · ${tab.name ?? pane.title}`,
+      });
+    } catch {
+      /* notifications unavailable: the tab mark still shows */
+    }
+  };
+  const clearAttention = (paneIds: string[]) => {
+    const ps = get().panes;
+    if (paneIds.some((id) => ps[id]?.attention))
+      set((s) => {
+        const panes = { ...s.panes };
+        for (const id of paneIds) if (panes[id]?.attention) panes[id] = { ...panes[id], attention: null };
+        return { panes };
+      });
+  };
+
   // Several sessions may ask at once (e.g. restoring tabs): queue the prompts and show
   // them one after another instead of letting them overwrite each other.
   const hostQueue: HostKeyPrompt[] = [];
@@ -301,14 +349,59 @@ export const useApp: UseBoundStore<StoreApi<AppState>> =
     nextPrompts();
   };
 
+  // ---- auto-reconnect: an SSH connection that was up and dropped (no exit status from the
+  // shell = not a normal `exit`) is retried with backoff, waiting for the network to be back.
+  const RETRY_MAX = 12;
+  const live = new Set<string>();
+  const retryTimers = new Map<string, number>();
+  const stopRetry = (paneId: string) => {
+    const t = retryTimers.get(paneId);
+    if (t !== undefined) clearTimeout(t);
+    retryTimers.delete(paneId);
+    if (get().panes[paneId]?.retry) patchPane(paneId, { retry: null });
+  };
+  const scheduleRetry = (paneId: string) => {
+    const pane = get().panes[paneId];
+    if (!pane) return;
+    const attempt = (pane.retry?.attempt ?? 0) + 1;
+    if (attempt > RETRY_MAX) {
+      stopRetry(paneId);
+      pane.session.term.write("\r\n\x1b[2m── gave up reconnecting · press Enter to try again ──\x1b[0m\r\n");
+      return;
+    }
+    if (attempt === 1) pane.session.term.write("\r\n\x1b[2m── connection lost · reconnecting… ──\x1b[0m\r\n");
+    const delay = Math.min(30, 2 ** attempt) * 1000;
+    patchPane(paneId, { retry: { attempt, at: Date.now() + delay } });
+    const fire = () => {
+      retryTimers.delete(paneId);
+      const p = get().panes[paneId];
+      if (!p?.retry || p.session.alive) return;
+      if (!navigator.onLine) {
+        // Offline: wait for the network instead of burning attempts.
+        const back = () => fire();
+        window.addEventListener("online", back, { once: true });
+        return;
+      }
+      patchPane(paneId, { status: "connecting", error: undefined, exitCode: undefined, awaitingSecret: false });
+      void p.session.connect();
+    };
+    retryTimers.set(paneId, window.setTimeout(fire, delay));
+  };
+
   const handleEvent = (paneId: string) => (ev: SessionEvent) => {
     const pane = get().panes[paneId];
     if (!pane) return;
+    if (ev.type === "hostKeyPrompt" || ev.type === "secretRequired") stopRetry(paneId); // needs you
     switch (ev.type) {
       case "connecting":
         patchPane(paneId, { status: "connecting", error: undefined });
         break;
       case "connected":
+        live.add(paneId);
+        if (pane.retry) {
+          stopRetry(paneId);
+          pane.session.term.write("\x1b[2m── reconnected ──\x1b[0m\r\n");
+        }
         patchPane(paneId, { status: "connected", error: undefined, awaitingSecret: false });
         if (get().settings.autoLog && !pane.logPath) void get().toggleLog(paneId);
         break;
@@ -338,10 +431,23 @@ export const useApp: UseBoundStore<StoreApi<AppState>> =
       case "error":
         patchPane(paneId, { status: "error", error: ev.message });
         break;
+      case "notice":
+        toast({ kind: "info", title: pane.title, description: ev.message, duration: 8000 });
+        break;
       case "exit": {
         const p = get().panes[paneId];
+        const wasLive = live.delete(paneId);
         if (p && p.status !== "error" && !p.awaitingSecret)
           patchPane(paneId, { status: "exited", exitCode: ev.code });
+        // Dropped (no exit status from the shell) after being connected, or a retry failed.
+        if (
+          p?.kind === "ssh" &&
+          ev.code == null &&
+          !p.awaitingSecret &&
+          get().settings.autoReconnect &&
+          (wasLive || p.retry)
+        )
+          scheduleRetry(paneId);
         dropPrompts(paneId);
         if (p?.logPath) {
           p.session.setLogging(false);
@@ -361,6 +467,9 @@ export const useApp: UseBoundStore<StoreApi<AppState>> =
     const id = uid("p");
     const session = new TermSession(source, eff(), handleEvent(id));
     session.onCwd = (cwd) => patchPane(id, { cwd });
+    session.blocks.onFinish((b, quiet) => {
+      if (!quiet) void commandDone(id, b);
+    });
     return {
       id,
       title,
@@ -649,6 +758,7 @@ export const useApp: UseBoundStore<StoreApi<AppState>> =
       merged.dock = normalizeDock(settings?.dock);
       merged.agent = { ...DEFAULT_AGENT, ...(settings?.agent ?? {}) };
       merged.mcp = { ...DEFAULT_MCP, ...(settings?.mcp ?? {}) };
+      merged.blockBadges = { ...DEFAULT_BADGES, ...(settings?.blockBadges ?? {}) };
       // The right dock's width used to be `filesWidth`.
       const legacy = (settings as { filesWidth?: number } | null)?.filesWidth;
       if (settings && !("rightWidth" in settings) && legacy) merged.rightWidth = legacy;
@@ -711,6 +821,7 @@ export const useApp: UseBoundStore<StoreApi<AppState>> =
     reconnect(paneId) {
       const pane = get().panes[paneId];
       if (!pane || pane.session.alive) return;
+      stopRetry(paneId);
       pane.session.term.write("\r\n\x1b[2m── reconnecting ──\x1b[0m\r\n");
       patchPane(paneId, {
         status: "connecting",
@@ -719,6 +830,10 @@ export const useApp: UseBoundStore<StoreApi<AppState>> =
         awaitingSecret: false,
       });
       void pane.session.connect();
+    },
+
+    cancelRetry(paneId) {
+      stopRetry(paneId);
     },
 
     splitActive(dir) {
@@ -740,6 +855,8 @@ export const useApp: UseBoundStore<StoreApi<AppState>> =
       const tab = tabOfPane(paneId);
       const closing = s.panes[paneId];
       const sid = closing?.session.sessionId;
+      stopRetry(paneId);
+      live.delete(paneId);
       if (closing?.kind === "ssh" && sid) void ipc.monitorForget(sid).catch(() => {});
       closing?.session.dispose();
       const panes = { ...s.panes };
@@ -772,6 +889,8 @@ export const useApp: UseBoundStore<StoreApi<AppState>> =
 
     setActiveTab(tabId) {
       set({ activeTabId: tabId });
+      const tab = get().tabs.find((t) => t.id === tabId);
+      if (tab && document.hasFocus()) clearAttention(layoutPanes(tab.layout));
     },
 
     focusPane(paneId) {

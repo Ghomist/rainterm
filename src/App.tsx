@@ -6,6 +6,8 @@ import { Dialogs } from "@/components/dialogs";
 import { Dock } from "@/components/Dock";
 import { LockScreen } from "@/components/LockScreen";
 import { Overlays } from "@/components/Overlays";
+import { SnippetVarsDialog } from "@/components/SnippetVars";
+import { SshKeyDialogs } from "@/components/SshKeys";
 import { SettingsDialog } from "@/components/SettingsDialog";
 import { StatusBar } from "@/components/StatusBar";
 import { TerminalArea } from "@/components/TerminalArea";
@@ -128,6 +130,8 @@ export default function App() {
         <Dialogs />
         <SettingsDialog />
         <Overlays />
+        <SnippetVarsDialog />
+        <SshKeyDialogs />
         <LockScreen />
       </TooltipProvider>
     </MotionConfig>

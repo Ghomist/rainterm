@@ -31,10 +31,35 @@ pub enum SshAuth {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Forward {
+    /// local (-L), remote (-R) or dynamic (-D, a SOCKS5 proxy on this computer).
+    #[serde(default)]
+    pub kind: ForwardKind,
     pub local_port: u16,
     pub remote_host: String,
     pub remote_port: u16,
+    /// -R only: where connections arriving on the server are sent (on this side).
+    #[serde(default = "loopback")]
+    pub local_host: String,
 }
+
+fn loopback() -> String {
+    "127.0.0.1".into()
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ForwardKind {
+    /// 127.0.0.1:local_port on this computer → remote_host:remote_port as seen from the server.
+    #[default]
+    Local,
+    /// remote_host:remote_port on the server (bind address) → local_host:local_port here.
+    Remote,
+    /// SOCKS5 proxy on 127.0.0.1:local_port; every connection goes out through the server.
+    Dynamic,
+}
+
+/// Remote forwards of one connection: port bound on the server → (host, port) on this side.
+type RemoteMap = Arc<parking_lot::Mutex<std::collections::HashMap<u32, (String, u16)>>>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -70,10 +95,41 @@ pub struct Handler {
     port: u16,
     events: Channel<SessionEvent>,
     shared: Arc<Shared>,
+    remote: RemoteMap,
 }
 
 impl client::Handler for Handler {
     type Error = russh::Error;
+
+    /// A connection arrived on a port the server listens on for us (-R): connect it to its
+    /// target on this side.
+    async fn server_channel_open_forwarded_tcpip(
+        &mut self,
+        channel: russh::Channel<client::Msg>,
+        _connected_address: &str,
+        connected_port: u32,
+        _originator_address: &str,
+        _originator_port: u32,
+        reply: client::ChannelOpenHandle,
+        _session: &mut client::Session,
+    ) -> Result<(), Self::Error> {
+        let target = self.remote.lock().get(&connected_port).cloned();
+        let Some((host, port)) = target else {
+            drop(reply);
+            return Ok(());
+        };
+        reply.accept().await;
+        tokio::spawn(async move {
+            let Ok(mut sock) = tokio::net::TcpStream::connect((host.as_str(), port)).await else {
+                let _ = channel.close().await;
+                return;
+            };
+            let _ = sock.set_nodelay(true);
+            let mut stream = channel.into_stream();
+            let _ = tokio::io::copy_bidirectional(&mut sock, &mut stream).await;
+        });
+        Ok(())
+    }
 
     async fn check_server_key(&mut self, key: &PublicKeyOrCertificate) -> Result<bool, Self::Error> {
         let PublicKeyOrCertificate::PublicKey { key, .. } = key else {
@@ -158,6 +214,7 @@ pub struct Conn {
     forwards: parking_lot::Mutex<Vec<JoinHandle<()>>>,
     /// Forwards added while connected (Ports panel), by local port.
     runtime_forwards: parking_lot::Mutex<std::collections::HashMap<u16, JoinHandle<()>>>,
+    remote: RemoteMap,
 }
 
 impl Conn {
@@ -191,7 +248,7 @@ impl Conn {
     pub async fn add_forward(self: &Arc<Self>, local_port: u16, remote_host: String, remote_port: u16) -> anyhow::Result<u16> {
         let listener = tokio::net::TcpListener::bind(("127.0.0.1", local_port)).await?;
         let port = listener.local_addr()?.port();
-        let fwd = Forward { local_port: port, remote_host, remote_port };
+        let fwd = Forward { kind: ForwardKind::Local, local_port: port, remote_host, remote_port, local_host: loopback() };
         let task = tokio::spawn(serve_forward(listener, Arc::downgrade(self), fwd));
         if let Some(old) = self.runtime_forwards.lock().insert(port, task) {
             old.abort();
@@ -227,16 +284,46 @@ impl Conn {
     fn start_forward(self: &Arc<Self>, fwd: Forward, events: Channel<SessionEvent>) {
         let conn = Arc::downgrade(self);
         let task = tokio::spawn(async move {
+            if fwd.kind == ForwardKind::Remote {
+                let Some(c) = conn.upgrade() else { return };
+                let bind = if fwd.remote_host.trim().is_empty() { "127.0.0.1".to_string() } else { fwd.remote_host.clone() };
+                // Register first: the server may hand us a connection right after it agrees.
+                c.remote.lock().insert(fwd.remote_port as u32, (fwd.local_host.clone(), fwd.local_port));
+                match c.handle.tcpip_forward(bind.clone(), fwd.remote_port as u32).await {
+                    Ok(port) if port != 0 && port != fwd.remote_port as u32 => {
+                        // Port 0 = the server picked one.
+                        c.remote.lock().insert(port, (fwd.local_host.clone(), fwd.local_port));
+                        let _ = events.send(SessionEvent::Notice {
+                            message: format!("Remote forward: server port {port} → {}:{}", fwd.local_host, fwd.local_port),
+                        });
+                    }
+                    Ok(_) => {}
+                    Err(e) => {
+                        c.remote.lock().remove(&(fwd.remote_port as u32));
+                        let _ = events.send(SessionEvent::Notice {
+                            message: format!(
+                                "Remote forward {bind}:{} was refused by the server ({e}). Is AllowTcpForwarding / GatewayPorts enabled?",
+                                fwd.remote_port
+                            ),
+                        });
+                    }
+                }
+                return;
+            }
             let listener = match tokio::net::TcpListener::bind(("127.0.0.1", fwd.local_port)).await {
                 Ok(l) => l,
                 Err(e) => {
-                    let _ = events.send(SessionEvent::Error {
-                        message: format!("port forward 127.0.0.1:{} failed: {e}", fwd.local_port),
+                    let _ = events.send(SessionEvent::Notice {
+                        message: format!("Port forward on 127.0.0.1:{} failed: {e}", fwd.local_port),
                     });
                     return;
                 }
             };
-            serve_forward(listener, conn, fwd).await;
+            if fwd.kind == ForwardKind::Dynamic {
+                serve_socks(listener, conn).await;
+            } else {
+                serve_forward(listener, conn, fwd).await;
+            }
         });
         self.forwards.lock().push(task);
     }
@@ -258,6 +345,80 @@ async fn serve_forward(listener: tokio::net::TcpListener, conn: std::sync::Weak<
             }
         });
     }
+}
+
+/// A minimal SOCKS5 server (no auth, CONNECT only): each connection is opened from the
+/// server's side through a direct-tcpip channel, like `ssh -D`.
+async fn serve_socks(listener: tokio::net::TcpListener, conn: std::sync::Weak<Conn>) {
+    loop {
+        let Ok((sock, peer)) = listener.accept().await else { break };
+        let Some(conn) = conn.upgrade() else { break };
+        tokio::spawn(async move {
+            let _ = socks_session(sock, peer, conn).await;
+        });
+    }
+}
+
+async fn socks_session(mut sock: tokio::net::TcpStream, peer: std::net::SocketAddr, conn: Arc<Conn>) -> anyhow::Result<()> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let _ = sock.set_nodelay(true);
+    // Greeting: VER NMETHODS METHODS…
+    let mut head = [0u8; 2];
+    sock.read_exact(&mut head).await?;
+    anyhow::ensure!(head[0] == 5, "not SOCKS5");
+    let mut methods = vec![0u8; head[1] as usize];
+    sock.read_exact(&mut methods).await?;
+    if !methods.contains(&0) {
+        sock.write_all(&[5, 0xff]).await?;
+        anyhow::bail!("client wants authentication");
+    }
+    sock.write_all(&[5, 0]).await?;
+    // Request: VER CMD RSV ATYP ADDR PORT
+    let mut req = [0u8; 4];
+    sock.read_exact(&mut req).await?;
+    let host = match req[3] {
+        1 => {
+            let mut a = [0u8; 4];
+            sock.read_exact(&mut a).await?;
+            std::net::Ipv4Addr::from(a).to_string()
+        }
+        3 => {
+            let mut n = [0u8; 1];
+            sock.read_exact(&mut n).await?;
+            let mut name = vec![0u8; n[0] as usize];
+            sock.read_exact(&mut name).await?;
+            String::from_utf8_lossy(&name).into_owned()
+        }
+        4 => {
+            let mut a = [0u8; 16];
+            sock.read_exact(&mut a).await?;
+            std::net::Ipv6Addr::from(a).to_string()
+        }
+        _ => anyhow::bail!("bad address type"),
+    };
+    let mut p = [0u8; 2];
+    sock.read_exact(&mut p).await?;
+    let port = u16::from_be_bytes(p);
+    let reply = |code: u8| [5, code, 0, 1, 0, 0, 0, 0, 0, 0];
+    if req[1] != 1 {
+        sock.write_all(&reply(7)).await?; // command not supported
+        anyhow::bail!("only CONNECT is supported");
+    }
+    match conn
+        .handle
+        .channel_open_direct_tcpip(host, port as u32, peer.ip().to_string(), peer.port() as u32)
+        .await
+    {
+        Ok(ch) => {
+            sock.write_all(&reply(0)).await?;
+            let mut stream = ch.into_stream();
+            let _ = tokio::io::copy_bidirectional(&mut sock, &mut stream).await;
+        }
+        Err(_) => {
+            sock.write_all(&reply(5)).await?; // connection refused
+        }
+    }
+    Ok(())
 }
 
 impl Drop for Conn {
@@ -297,7 +458,8 @@ pub fn spawn(
 
 fn config() -> Arc<client::Config> {
     Arc::new(client::Config {
-        keepalive_interval: Some(Duration::from_secs(30)),
+        // A dead link is noticed within ~45 s (then the frontend reconnects).
+        keepalive_interval: Some(Duration::from_secs(15)),
         keepalive_max: 3,
         nodelay: true,
         ..Default::default()
@@ -311,11 +473,13 @@ async fn connect(
     events: &Channel<SessionEvent>,
     shared: &Arc<Shared>,
 ) -> anyhow::Result<Conn> {
+    let remote: RemoteMap = Default::default();
     let handler = Handler {
         host: target.host.clone(),
         port: target.port,
         events: events.clone(),
         shared: shared.clone(),
+        remote: remote.clone(),
     };
 
     let (mut session, jump) = if let Some(jump) = &target.jump {
@@ -341,7 +505,14 @@ async fn connect(
     };
 
     authenticate(&mut session, target, secret).await?;
-    Ok(Conn { handle: session, _jump: jump, sftp: OnceCell::new(), forwards: Default::default(), runtime_forwards: Default::default() })
+    Ok(Conn {
+        handle: session,
+        _jump: jump,
+        sftp: OnceCell::new(),
+        forwards: Default::default(),
+        runtime_forwards: Default::default(),
+        remote,
+    })
 }
 
 async fn authenticate(

@@ -55,6 +55,36 @@ export const useSnippets = create<SnippetState>((set, get) => ({
   },
 }));
 
+/** A blank in a quick command: {{name}}, {{name:default}} or {{name|choice|choice}}. */
+export interface SnippetVar {
+  name: string;
+  def: string | null;
+  choices: string[];
+}
+
+const VAR = /\{\{\s*([\w.-]+)\s*(?::([^}|]*)|((?:\|[^}|]*)+))?\s*\}\}/g;
+
+/** The distinct blanks in a command, in order of appearance. */
+export function snippetVars(command: string): SnippetVar[] {
+  const out: SnippetVar[] = [];
+  for (const m of command.matchAll(VAR)) {
+    const name = m[1];
+    const choices = m[3] ? m[3].split("|").slice(1).map((c) => c.trim()).filter(Boolean) : [];
+    const def = m[2] !== undefined ? m[2].trim() : null;
+    const seen = out.find((v) => v.name === name);
+    if (seen) {
+      if (!seen.def && def) seen.def = def;
+      if (!seen.choices.length) seen.choices = choices;
+    } else out.push({ name, def, choices });
+  }
+  return out;
+}
+
+/** Replace every blank with its value (a blank left empty falls back to its default). */
+export function fillVars(command: string, values: Record<string, string>) {
+  return command.replace(VAR, (_all, name: string, def?: string) => values[name] || def?.trim() || "");
+}
+
 /** What actually gets written to the shell. */
 export function snippetInput(s: Pick<Snippet, "command" | "run">, run = s.run) {
   const text = s.command.replace(/\r\n?/g, "\n").replace(/\n+$/, "").replace(/\n/g, "\r");

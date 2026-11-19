@@ -28,6 +28,18 @@ export type SshAuth =
   | { kind: "agent" }
   | { kind: "auto" };
 
+/** A key pair in ~/.ssh. */
+export interface KeyInfo {
+  name: string;
+  path: string;
+  hasPrivate: boolean;
+  encrypted: boolean | null;
+  algorithm: string;
+  comment: string;
+  fingerprint: string;
+  publicKey: string;
+}
+
 export interface MonitorDisk {
   mount: string;
   device: string;
@@ -81,10 +93,19 @@ export interface SshConfigHost {
   proxyJump: string | null;
 }
 
+export type ForwardKind = "local" | "remote" | "dynamic";
+
+/**
+ * local (-L): 127.0.0.1:localPort here → remoteHost:remotePort from the server.
+ * remote (-R): remoteHost:remotePort on the server (bind address) → localHost:localPort here.
+ * dynamic (-D): a SOCKS5 proxy on 127.0.0.1:localPort; traffic leaves from the server.
+ */
 export interface Forward {
+  kind?: ForwardKind;
   localPort: number;
   remoteHost: string;
   remotePort: number;
+  localHost?: string;
 }
 
 export interface SshTarget {
@@ -170,6 +191,7 @@ export type SessionEvent =
   | { type: "hostKeyPrompt"; host: string; port: number; keyType: string; fingerprint: string; changed: boolean }
   | { type: "secretRequired"; kind: SecretKind; message: string }
   | { type: "error"; message: string }
+  | { type: "notice"; message: string }
   | { type: "exit"; code: number | null };
 
 export type SecretKind = "password" | "passphrase" | "jumpPassword" | "jumpPassphrase";
@@ -291,6 +313,12 @@ export const ipc = {
   secretHas: (key: string) => invoke<boolean>("secret_has", { key }),
   sshPing: (sessionId: string) => invoke<number>("ssh_ping", { sessionId }),
   systemProxy: () => invoke<SystemProxy>("system_proxy"),
+  textFileRead: (path: string) => invoke<string>("text_file_read", { path }),
+  textFileWrite: (path: string, text: string) => invoke<void>("text_file_write", { path, text }),
+  sshKeysList: () => invoke<KeyInfo[]>("ssh_keys_list"),
+  sshKeyGenerate: (name: string, comment: string, passphrase: string | null) =>
+    invoke<KeyInfo>("ssh_key_generate", { name, comment, passphrase }),
+  sshCopyId: (sessionId: string, publicKey: string) => invoke<string>("ssh_copy_id", { sessionId, publicKey }),
   proxyTest: (proxy: ProxySpec, host: string, port: number) => invoke<number>("proxy_test", { proxy, host, port }),
   sshConfigHosts: () => invoke<[SshConfigHost[], string]>("ssh_config_hosts"),
   setHighlightRules: (rules: HighlightRule[]) => invoke<string[]>("set_highlight_rules", { rules }),

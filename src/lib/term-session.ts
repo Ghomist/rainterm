@@ -4,6 +4,7 @@
 
 import { afterLayoutAnimation, layoutAnimating } from "./layout-anim";
 import { FitAddon } from "@xterm/addon-fit";
+import { ImageAddon } from "@xterm/addon-image";
 import { SearchAddon } from "@xterm/addon-search";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -128,6 +129,8 @@ export class TermSession {
         if (e.ctrlKey || e.metaKey) void openUrl(uri);
       }),
     );
+    // Inline images: sixel and the iTerm2 protocol (imgcat, chafa, matplotlib backends…).
+    this.term.loadAddon(new ImageAddon({ sixelSizeLimit: 25_000_000, storageLimit: 64, showPlaceholder: true }));
     this.blocks = new Blocks(this.term);
     // Only ConPTY (local shells on Windows) needs the cursor row kept fixed when lines
     // are folded/removed; everything else can simply move content up.

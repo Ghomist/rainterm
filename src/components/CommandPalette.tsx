@@ -35,7 +35,8 @@ import { useEffect, useState } from "react";
 import { Kbd } from "@/components/ui/input";
 import { commands } from "@/lib/history";
 import { bindingsOf, keycaps } from "@/lib/keymap";
-import { snippetInput, useSnippets } from "@/lib/snippets";
+import { useSnippets } from "@/lib/snippets";
+import { sendSnippet } from "./SnippetVars";
 import { useApp } from "@/store/app";
 
 export function CommandPalette() {
@@ -146,8 +147,7 @@ export function CommandPalette() {
                       value={`quick command ${sn.name} ${sn.command} ${sn.group}`}
                       onSelect={() =>
                         run(() => {
-                          pane.session.input(snippetInput(sn), true);
-                          pane.session.focus();
+                          void sendSnippet(sn);
                         })
                       }
                     >

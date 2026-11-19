@@ -33,25 +33,15 @@ import { Input } from "@/components/ui/input";
 import { IconButton, PanelHeader, SearchField } from "@/components/ui/panel";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip } from "@/components/ui/tooltip";
-import { confirm, toast } from "@/lib/overlay";
-import { type Snippet, snippetInput, useSnippets } from "@/lib/snippets";
+import { confirm } from "@/lib/overlay";
+import { type Snippet, snippetVars, useSnippets } from "@/lib/snippets";
 import { cn } from "@/lib/utils";
 import { useActivePane, useApp } from "@/store/app";
 import { Check, Field } from "./dialogs";
+import { sendSnippet } from "./SnippetVars";
 
 /** Type a snippet into the active terminal (mirrored by broadcast / input groups). */
-function send(s: Snippet, run = s.run) {
-  const st = useApp.getState();
-  const tab = st.tabs.find((t) => t.id === st.activeTabId);
-  const pane = tab ? st.panes[tab.activePane] : undefined;
-  if (!pane?.session.alive) {
-    toast({ kind: "info", title: "No connected terminal to send to" });
-    return false;
-  }
-  pane.session.input(snippetInput(s, run), true);
-  pane.session.focus();
-  return true;
-}
+const send = sendSnippet;
 
 export function SnippetsPanel() {
   const snippets = useSnippets((s) => s.snippets);
@@ -137,7 +127,7 @@ function SnippetRow({ s, onEdit }: { s: Snippet; onEdit: () => void }) {
   const remove = useSnippets((x) => x.remove);
   const [flash, setFlash] = useState(0);
   const fire = (run?: boolean) => {
-    if (send(s, run)) setFlash((n) => n + 1);
+    void send(s, run).then((ok) => ok && setFlash((n) => n + 1));
   };
   const firstLine = s.command.split(/\r?\n/)[0];
   const lines = s.command.split(/\r?\n/).filter(Boolean).length;
@@ -281,7 +271,7 @@ function SnippetEditor({ value, onClose }: { value: Snippet | "new" | null; onCl
               rows={4}
               spellCheck={false}
               value={s.command}
-              placeholder={"docker ps -a\n(several lines run one after another)"}
+              placeholder={"docker logs -f {{container}}\n(several lines run one after another)"}
               onChange={(e) => setS({ ...s, command: e.target.value })}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
@@ -292,6 +282,15 @@ function SnippetEditor({ value, onClose }: { value: Snippet | "new" | null; onCl
               className="w-full resize-y rounded-md border border-input bg-inset px-2.5 py-2 font-mono text-[12.5px] leading-relaxed outline-none transition-[border-color,box-shadow] duration-150 placeholder:text-muted-foreground/60 focus-visible:border-primary/60 focus-visible:ring-2 focus-visible:ring-ring/40"
             />
           </Field>
+          <p className="-mt-1.5 text-[11.5px] leading-relaxed text-muted-foreground">
+            Blanks are asked for when it runs: <code className="text-foreground/80">{"{{name}}"}</code>,{" "}
+            <code className="text-foreground/80">{"{{port:8080}}"}</code> (default),{" "}
+            <code className="text-foreground/80">{"{{env|dev|prod}}"}</code> (choices).
+            {snippetVars(s.command).length > 0 &&
+              ` This one asks for: ${snippetVars(s.command)
+                .map((v) => v.name)
+                .join(", ")}.`}
+          </p>
           <div className="grid grid-cols-2 gap-2">
             <Field label="Name">
               <Input placeholder="optional" value={s.name} onChange={(e) => setS({ ...s, name: e.target.value })} />

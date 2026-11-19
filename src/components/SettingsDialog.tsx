@@ -13,6 +13,8 @@ import { useApp } from "@/store/app";
 import { NumberInput, Select, Slider, Switch } from "@/components/ui/controls";
 import { Check, Field, Segmented } from "./dialogs";
 import { NetworkSection } from "./proxy";
+import { BackupSection } from "./settings-backup";
+import { SshKeysSection } from "./SshKeys";
 import { AgentSection } from "./settings-agent";
 import { KeyboardSection } from "./settings-keyboard";
 
@@ -22,10 +24,10 @@ const sections: { id: Section; label: string; icon: React.ReactNode }[] = [
   { id: "appearance", label: "Appearance", icon: <Palette /> },
   { id: "terminal", label: "Terminal", icon: <SquareTerminal /> },
   { id: "agent", label: "Agent", icon: <Bot /> },
-  { id: "network", label: "Network", icon: <Globe /> },
+  { id: "network", label: "Network & keys", icon: <Globe /> },
   { id: "highlight", label: "Highlighting", icon: <Sparkles /> },
   { id: "keyboard", label: "Shortcuts", icon: <Keyboard /> },
-  { id: "security", label: "Security", icon: <Lock /> },
+  { id: "security", label: "Security & backup", icon: <Lock /> },
 ];
 
 export function SettingsDialog() {
@@ -73,10 +75,20 @@ export function SettingsDialog() {
             {section === "appearance" && <Appearance />}
             {section === "terminal" && <TerminalSection />}
             {section === "agent" && <AgentSection />}
-            {section === "network" && <NetworkSection />}
+            {section === "network" && (
+              <>
+                <NetworkSection />
+                <SshKeysSection />
+              </>
+            )}
             {section === "highlight" && <HighlightSection />}
             {section === "keyboard" && <KeyboardSection />}
-            {section === "security" && <Security />}
+            {section === "security" && (
+              <>
+                <Security />
+                <BackupSection />
+              </>
+            )}
           </motion.div>
         </div>
       </DialogContent>
@@ -334,7 +346,51 @@ function TerminalSection() {
         />
       </Field>
       <div className="grid gap-2.5">
+        <Label>Commands</Label>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <span className="text-[12.5px] text-muted-foreground">Badge on each command shows</span>
+          {(
+            [
+              ["exitCode", "Exit code"],
+              ["duration", "Duration"],
+              ["startTime", "Start time"],
+            ] as const
+          ).map(([k, label]) => (
+            <Check
+              key={k}
+              checked={s.blockBadges[k]}
+              onChange={(v) => void update({ blockBadges: { ...s.blockBadges, [k]: v } })}
+            >
+              {label}
+            </Check>
+          ))}
+        </div>
+        <p className="-mt-1 text-[11.5px] text-muted-foreground">
+          Click a badge to copy that command's output (Shift+click: with the command). Ctrl+↑ / Ctrl+↓ jump
+          between commands.
+        </p>
+        <Check checked={s.stickyCommand} onChange={(v) => void update({ stickyCommand: v })}>
+          Keep the command at the top while scrolling through its output
+        </Check>
+      </div>
+      <Field label="Notify when a long command finishes while you're elsewhere">
+        <Select
+          value={s.notifyAfterSeconds}
+          onChange={(notifyAfterSeconds) => void update({ notifyAfterSeconds })}
+          options={[
+            { value: 0, label: "Never" },
+            ...[5, 10, 30, 60, 300].map((n) => ({
+              value: n,
+              label: n >= 60 ? `If it ran ${n / 60} min or longer` : `If it ran ${n} s or longer`,
+            })),
+          ]}
+        />
+      </Field>
+      <div className="grid gap-2.5">
         <Label>Behavior</Label>
+        <Check checked={s.autoReconnect} onChange={(v) => void update({ autoReconnect: v })}>
+          Reconnect SSH sessions automatically when the connection drops
+        </Check>
         <Check checked={s.lineNumbers} onChange={(v) => void update({ lineNumbers: v })}>
           Show line numbers
         </Check>

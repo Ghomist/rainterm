@@ -277,6 +277,14 @@ html.dark [data-glass="on"] .xterm-screen {
   color: transparent;
   animation: shimmer 1.6s linear infinite;
 }
+@keyframes fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
 @keyframes shimmer {
   from {
     background-position: 100% 0;

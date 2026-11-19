@@ -15,6 +15,7 @@ import {
   Square,
   SquareTerminal,
   X,
+  Check,
 } from "lucide-react";
 import { AnimatePresence, motion, Reorder } from "motion/react";
 import { useEffect, useRef, useState } from "react";
@@ -134,6 +135,25 @@ function TabItem({ tab }: { tab: Tab }) {
     return [...g].sort().join(",");
   });
   const count = layoutPanes(tab.layout).length;
+  const attention = useApp((s) => {
+    const list = layoutPanes(tab.layout).map((id) => s.panes[id]?.attention);
+    return list.includes("fail") ? "fail" : list.includes("ok") ? "ok" : null;
+  });
+  // Looking at the tab (window focused, tab active) clears its "finished" mark.
+  useEffect(() => {
+    if (!active || !attention) return;
+    const clear = () => {
+      if (!document.hasFocus()) return;
+      useApp.setState((s) => {
+        const panes = { ...s.panes };
+        for (const id of layoutPanes(tab.layout)) if (panes[id]?.attention) panes[id] = { ...panes[id], attention: null };
+        return { panes };
+      });
+    };
+    clear();
+    window.addEventListener("focus", clear);
+    return () => window.removeEventListener("focus", clear);
+  }, [active, attention, tab.layout]);
   const hoverTimer = useRef<number | null>(null);
   useEffect(() => () => {
     if (hoverTimer.current !== null) clearTimeout(hoverTimer.current);
@@ -225,7 +245,20 @@ function TabItem({ tab }: { tab: Tab }) {
           )}
           {/* Status dot and close button share one 20px slot, so they line up. */}
           <span className="relative -mr-1 flex size-5 shrink-0 items-center justify-center">
-            <StatusDot status={pane.status} className="group-hover:hidden" />
+            {attention ? (
+              <Tooltip content={attention === "fail" ? "A command failed here" : "A long command finished here"}>
+                <span
+                  className={cn(
+                    "flex size-3.5 items-center justify-center rounded-full group-hover:hidden",
+                    attention === "fail" ? "bg-destructive/15 text-destructive" : "bg-success/15 text-success",
+                  )}
+                >
+                  {attention === "fail" ? <X className="size-2.5" strokeWidth={3} /> : <Check className="size-2.5" strokeWidth={3} />}
+                </span>
+              </Tooltip>
+            ) : (
+              <StatusDot status={pane.status} className="group-hover:hidden" />
+            )}
             <button
               type="button"
               onPointerDown={(e) => e.stopPropagation()}
