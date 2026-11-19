@@ -516,13 +516,6 @@ function ProcRow({
         </ContextMenuTrigger>
       </Tooltip>
       <ContextMenuContent className="min-w-48">
-        <ContextMenuItem onSelect={() => void kill(false)}>
-          <X /> End process
-        </ContextMenuItem>
-        <ContextMenuItem destructive onSelect={() => void kill(true)}>
-          <OctagonX /> Force kill
-        </ContextMenuItem>
-        <ContextMenuSeparator />
         <ContextMenuItem onSelect={() => copy(String(p.pid), "PID")}>
           <ClipboardCopy /> Copy PID
         </ContextMenuItem>
@@ -539,6 +532,13 @@ function ProcRow({
             <FolderOpen /> Open file location
           </ContextMenuItem>
         )}
+        <ContextMenuSeparator />
+        <ContextMenuItem onSelect={() => void kill(false)}>
+          <X /> End process
+        </ContextMenuItem>
+        <ContextMenuItem destructive onSelect={() => void kill(true)}>
+          <OctagonX /> Force kill
+        </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
   );

@@ -29,28 +29,42 @@ on macOS right-click the app → Open the first time.
   plus broadcast to the current tab / all terminals
 - Find (Ctrl+Shift+F), copy on select, right-click copy/paste, clickable links (Ctrl+click)
 - Session logging (rendered text, not raw escape codes)
-- Completion popup while typing: command history, file paths and every command on `PATH`
+- Completion suggestions after a short pause in typing: command history, file paths and every command on
+  `PATH` (↑ on the first entry hands the key back to the shell's history; Ctrl+Space opens it manually)
 
 **SSH**
 - Password, private key (with passphrase prompt), SSH agent / Pageant, or **Auto** (agent → default keys → password)
 - Passwords optionally stored in the OS keychain; never written to disk
-- known_hosts verification with a fingerprint prompt; changed keys are refused
+- known_hosts verification with a fingerprint prompt; a changed key gets a loud warning and can be
+  replaced (like `ssh-keygen -R`, with a backup) after you confirm
 - Jump host (ProxyJump), local port forwarding (-L)
 - **Proxies**: SOCKS5 / HTTP CONNECT (with optional login), saved once in Settings → Network and
-  reused per session, plus a default proxy for every SSH connection
+  reused per session, plus a default proxy for every SSH connection; or follow the **system proxy**
 - Live round-trip latency of connected servers in the status bar
 - **Import from `~/.ssh/config`** (Host/HostName/User/Port/IdentityFile/ProxyJump, `Include`, wildcards)
 - Quick connect: type `user@host[:port]` in the sidebar search or the command palette
 - **Session groups**: create / rename groups, drag sessions between them, connect a whole group
 
+**Built-in agent** (Ctrl+I) — a side panel with one conversation per terminal: it sees what's in the
+terminal you're on and runs commands there visibly (output and exit code read back from command
+blocks); typing in the terminal interrupts it. Modes: Suggest (types, you run) / Confirm (asks per
+command) / Auto (read-only commands on its own). Works with OpenAI-compatible APIs (OpenAI,
+DeepSeek, …) and the Anthropic API; the key lives in the OS keychain (Settings → Agent).
+
+**MCP server** (Settings → Agent, off by default) — lets other agents (Claude Code, Cursor, …) use your
+terminals over Streamable HTTP at `http://127.0.0.1:7323/mcp` (address and port configurable, bearer
+token required): list / open terminals, run commands, read output, send keys — visibly, with the same
+approval modes.
+
 **Side panels** — an icon rail on each edge; left and right panels open side by side, both resizable.
-Right-click an icon to move it to the other side. Default: Sessions, Files, Quick commands on the left;
+Right-click an icon to move it to the other side. Default: Sessions, Agent, Files, Quick commands on the left;
 Monitor, Ports, Containers, Kubernetes on the right. Ctrl+Shift+B hides both.
 
 **Quick ops** (for the active terminal's machine — this computer, or the SSH server)
 - **Resource monitor**: CPU, memory, GPU, disks, processes (end / copy / reveal)
 - **Ports**: listening ports with their process; open in a browser, or **forward a remote port to this computer** in one click
-- **Containers** (docker / podman): start, stop, restart, remove, follow logs, open a shell
+- **Containers** (docker / podman): start, stop, restart, remove, follow logs, open a shell; **images**
+  with a "Run container" dialog pre-filled from how earlier containers of that image were started
 - **Kubernetes** (kubectl): pods / deployments / services per namespace; logs, shell, describe, delete, rollout restart, scale
 - **Quick commands**: saved command lines (single or multi-line) sent to the terminal with one click
 

@@ -1,4 +1,4 @@
-import { create } from "zustand";
+import { create, type StoreApi, type UseBoundStore } from "zustand";
 import {
   type Forward,
   ipc,
@@ -19,8 +19,11 @@ import {
   resolveTheme,
   type Settings,
   sha256Hex,
+  DEFAULT_AGENT,
+  DEFAULT_MCP,
   type ViewId,
 } from "@/lib/settings";
+import { SYSTEM_PROXY, systemProxySpec } from "@/lib/proxy-url";
 import { type SessionSource, TermSession } from "@/lib/term-session";
 
 // ------------------------------------------------------------------ model
@@ -129,6 +132,8 @@ export interface HostKeyPrompt {
   port: number;
   keyType: string;
   fingerprint: string;
+  /** Known with a different key: accepting replaces the old entry. */
+  changed: boolean;
 }
 
 export interface SecretPrompt {
@@ -252,7 +257,11 @@ export const proxySecretKey = (proxyId: string) => `proxy:${proxyId}`;
 
 // ------------------------------------------------------------------ store
 
-export const useApp = create<AppState>((set, get) => {
+// Kept across dev hot updates: re-creating the store would re-run startup (restore) and
+// orphan the live terminals of the old one.
+export const useApp: UseBoundStore<StoreApi<AppState>> =
+  import.meta.hot?.data.useApp ??
+  create<AppState>((set, get) => {
   /** Settings with `theme` resolved from mode + system appearance. */
   const eff = (): Settings => {
     const s = get().settings;
@@ -437,6 +446,7 @@ export const useApp = create<AppState>((set, get) => {
   const resolveProxy = async (ref: string | null | undefined): Promise<ProxySpec | null> => {
     const s = get().settings;
     const id = ref === "direct" ? null : ref || s.globalProxy;
+    if (id === SYSTEM_PROXY) return systemProxySpec();
     const def = id ? s.proxies.find((x) => x.id === id) : undefined;
     if (!def) return null;
     const password = def.hasPassword ? await ipc.secretGet(proxySecretKey(def.id)).catch(() => null) : null;
@@ -637,6 +647,8 @@ export const useApp = create<AppState>((set, get) => {
       await loadHistory();
       const merged: Settings = { ...DEFAULT_SETTINGS, ...(settings ?? {}) };
       merged.dock = normalizeDock(settings?.dock);
+      merged.agent = { ...DEFAULT_AGENT, ...(settings?.agent ?? {}) };
+      merged.mcp = { ...DEFAULT_MCP, ...(settings?.mcp ?? {}) };
       // The right dock's width used to be `filesWidth`.
       const legacy = (settings as { filesWidth?: number } | null)?.filesWidth;
       if (settings && !("rightWidth" in settings) && legacy) merged.rightWidth = legacy;
@@ -1056,6 +1068,7 @@ export const useApp = create<AppState>((set, get) => {
     },
   };
 });
+if (import.meta.hot) import.meta.hot.data.useApp = useApp;
 
 /** The active terminal theme id (mode + system appearance resolved). */
 export const useThemeId = () => useApp((s) => resolveTheme(s.settings, s.systemDark));

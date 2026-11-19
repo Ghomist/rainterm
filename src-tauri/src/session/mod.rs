@@ -63,6 +63,9 @@ pub enum SessionEvent {
         port: u16,
         key_type: String,
         fingerprint: String,
+        /// The host is known with a *different* key (reinstalled server — or an attack).
+        /// Accepting replaces the old known_hosts entry.
+        changed: bool,
     },
     /// Authentication needs a (new) secret; the session has ended. The frontend
     /// prompts and reconnects with it.
@@ -105,6 +108,9 @@ pub struct Shared {
     /// Pending answer for an SSH host-key prompt.
     pub host_key_reply: Mutex<Option<oneshot::Sender<bool>>>,
     pub highlight: AtomicBool,
+    /// When the user last sent input: output right after it (without a newline) is the
+    /// shell echoing / redrawing the line being typed, which must not be highlighted.
+    pub last_input: Mutex<Option<std::time::Instant>>,
     pub log: Mutex<Option<(PathBuf, std::fs::File)>>,
     /// Live SSH connection (for SFTP / port forwarding on the same transport).
     pub ssh: Mutex<Option<Arc<ssh::Conn>>>,
@@ -144,6 +150,7 @@ impl Sessions {
             flow: Flow::new(),
             host_key_reply: Mutex::new(None),
             highlight: AtomicBool::new(highlight),
+            last_input: Mutex::new(None),
             log: Mutex::new(None),
             ssh: Mutex::new(None),
             exit_code: Mutex::new(None),
@@ -232,6 +239,9 @@ pub fn append_log(shared: &Shared, text: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Output this soon after a keystroke, without a newline, counts as input echo.
+const ECHO_WINDOW: std::time::Duration = std::time::Duration::from_millis(150);
+
 /// Coalesce backend output into large binary IPC messages, respecting flow control.
 async fn pump(
     id: String,
@@ -282,7 +292,10 @@ async fn pump(
 
         // Keyword highlighting. (Logging is line-based from the rendered screen, see
         // `append_log`: a raw-stream log is full of ConPTY repaint noise.)
-        filter.highlight = shared.highlight.load(Ordering::Relaxed);
+        // Not the echo of what you're typing: the line editor redraws parts of the line as
+        // you edit, so colors there would end up on fragments (half a URL stays colored).
+        let echo = !buf.contains(&b'\n') && shared.last_input.lock().is_some_and(|t| t.elapsed() < ECHO_WINDOW);
+        filter.highlight = shared.highlight.load(Ordering::Relaxed) && !echo;
         let chunk = filter.process(&buf, None);
         buf.clear();
 

@@ -27,7 +27,9 @@ import {
   Network,
   Boxes,
   Ship,
+  Sparkles,
 } from "lucide-react";
+import { toast } from "@/lib/overlay";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { useEffect, useState } from "react";
 import { Kbd } from "@/components/ui/input";
@@ -181,6 +183,19 @@ export function CommandPalette() {
                   <Item value="find search" onSelect={() => run(() => set({ searchOpen: true }))}>
                     <Search /> Find… <Keys id="find" />
                   </Item>
+                  {pane.kind === "ssh" && !pane.session.blocks.integrated && (
+                    <Item
+                      value="enable shell integration"
+                      onSelect={() =>
+                        run(() => {
+                          const why = pane.session.enableIntegration();
+                          if (why) toast({ kind: "info", title: why });
+                        })
+                      }
+                    >
+                      <Sparkles /> Enable shell integration in this terminal
+                    </Item>
+                  )}
                   <Item value="fold all output" onSelect={() => run(() => pane.session.blocks.foldAll())}>
                     <FoldVertical /> Fold all command output <Keys id="foldAll" />
                   </Item>

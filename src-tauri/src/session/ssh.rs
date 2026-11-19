@@ -83,21 +83,13 @@ impl client::Handler for Handler {
             return Ok(false);
         };
 
-        match russh::keys::check_known_hosts(&self.host, self.port, key) {
+        let changed = match russh::keys::check_known_hosts(&self.host, self.port, key) {
             Ok(true) => return Ok(true),
-            Err(russh::keys::Error::KeyChanged { line }) => {
-                let _ = self.events.send(SessionEvent::Error {
-                    message: format!(
-                        "HOST KEY CHANGED for {}:{} (known_hosts line {line}). \
-                         Possible man-in-the-middle attack — connection refused.",
-                        self.host, self.port
-                    ),
-                });
-                return Ok(false);
-            }
+            // Known with another key: ask, loudly (the dialog explains the risk).
+            Err(russh::keys::Error::KeyChanged { .. }) => true,
             // Unknown host (or no known_hosts file yet): ask the user.
-            _ => {}
-        }
+            _ => false,
+        };
 
         let (tx, rx) = tokio::sync::oneshot::channel();
         *self.shared.host_key_reply.lock() = Some(tx);
@@ -106,9 +98,16 @@ impl client::Handler for Handler {
             port: self.port,
             key_type: key.algorithm().to_string(),
             fingerprint: key.fingerprint(HashAlg::Sha256).to_string(),
+            changed,
         });
 
         let accepted = matches!(tokio::time::timeout(Duration::from_secs(300), rx).await, Ok(Ok(true)));
+        if accepted && changed {
+            if let Err(e) = forget_host_key(&self.host, self.port, key.algorithm()) {
+                let _ = self.events.send(SessionEvent::Error { message: format!("could not update known_hosts: {e:#}") });
+                return Ok(false);
+            }
+        }
         if accepted {
             if let Err(e) = russh::keys::known_hosts::learn_known_hosts(&self.host, self.port, key) {
                 let _ = self.events.send(SessionEvent::Error {
@@ -118,6 +117,36 @@ impl client::Handler for Handler {
         }
         Ok(accepted)
     }
+}
+
+/// Like `ssh-keygen -R`, limited to one key type: drop the recorded keys of that type for
+/// host:port (known_hosts is backed up to known_hosts.old first).
+fn forget_host_key(host: &str, port: u16, alg: russh::keys::Algorithm) -> anyhow::Result<()> {
+    let path = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("no home directory"))?.join(".ssh").join("known_hosts");
+    let text = std::fs::read_to_string(&path)?;
+    // russh numbers entries counting only non-comment lines, from 1.
+    let stale: std::collections::HashSet<usize> = russh::keys::known_hosts::known_host_keys(host, port)?
+        .into_iter()
+        .filter(|(_, k)| k.algorithm() == alg)
+        .map(|(n, _)| n)
+        .collect();
+    if stale.is_empty() {
+        return Ok(());
+    }
+    std::fs::copy(&path, path.with_extension("old"))?;
+    let mut n = 0usize;
+    let kept: Vec<&str> = text
+        .split_inclusive('\n')
+        .filter(|l| {
+            if l.starts_with('#') {
+                return true;
+            }
+            n += 1;
+            !stale.contains(&n)
+        })
+        .collect();
+    std::fs::write(&path, kept.concat())?;
+    Ok(())
 }
 
 /// An authenticated SSH transport.

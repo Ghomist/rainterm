@@ -2,6 +2,8 @@ mod commands;
 mod files;
 mod ops;
 mod proxy;
+mod llm;
+mod mcp;
 mod highlight;
 mod history;
 mod monitor;
@@ -84,6 +86,9 @@ fn open_serial(
 
 #[tauri::command]
 fn session_write(sessions: S<'_>, id: String, data: String) -> CmdResult<()> {
+    if let Ok(shared) = sessions.shared(&id) {
+        *shared.last_input.lock() = Some(std::time::Instant::now());
+    }
     sessions.send(&id, Ctrl::Write(data.into_bytes()))
 }
 
@@ -234,6 +239,11 @@ async fn ssh_ping(sessions: S<'_>, session_id: String) -> CmdResult<f64> {
 }
 
 #[tauri::command]
+async fn system_proxy() -> proxy::SystemProxy {
+    tauri::async_runtime::spawn_blocking(proxy::system_proxy).await.unwrap_or_default()
+}
+
+#[tauri::command]
 async fn proxy_test(proxy: proxy::ProxySpec, host: String, port: u16) -> CmdResult<u64> {
     proxy::test(&proxy, &host, port).await.map_err(|e| format!("{e:#}"))
 }
@@ -356,7 +366,17 @@ fn store_save(name: String, value: Value) -> CmdResult<()> {
 
 #[tauri::command]
 fn secret_get(key: String) -> Option<String> {
+    // The agent's API key is only ever read by the backend (llm.rs), never handed to the UI.
+    if key.starts_with("agent:") {
+        return None;
+    }
     store::secret_get(&key)
+}
+
+/// Whether a secret exists, without revealing it (Settings shows "key saved").
+#[tauri::command]
+fn secret_has(key: String) -> bool {
+    store::secret_get(&key).is_some_and(|v| !v.is_empty())
 }
 
 #[tauri::command]
@@ -399,6 +419,43 @@ fn set_window_effects(window: tauri::WebviewWindow, enabled: bool, dark: bool) -
 }
 
 /// Tell the OS whether the window is light or dark (affects native bits like shadows).
+// ------------------------------------------------------------------ agent (model APIs)
+
+#[tauri::command]
+fn llm_chat(id: String, config: llm::LlmConfig, request: llm::ChatRequest, on_event: Channel<llm::LlmEvent>) {
+    llm::start(id, config, request, on_event);
+}
+
+#[tauri::command]
+fn llm_cancel(id: String) -> bool {
+    llm::cancel(&id)
+}
+
+// ------------------------------------------------------------------ MCP server
+
+#[tauri::command]
+async fn mcp_start(app: tauri::AppHandle, host: String, port: u16, token: String) -> CmdResult<String> {
+    if token.len() < 16 {
+        return Err("token too short".into());
+    }
+    mcp::start(app, host, port, token).await.map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+fn mcp_stop() {
+    mcp::stop();
+}
+
+#[tauri::command]
+fn mcp_status() -> Option<String> {
+    mcp::status()
+}
+
+#[tauri::command]
+fn mcp_reply(id: u64, result: serde_json::Value) {
+    mcp::reply(id, result);
+}
+
 // ------------------------------------------------------------------ backgrounds
 
 const IMAGE_EXTS: [&str; 7] = ["png", "jpg", "jpeg", "webp", "gif", "bmp", "avif"];
@@ -475,7 +532,15 @@ pub fn run() {
             ssh_forward_stop,
             ssh_ping,
             proxy_test,
+            system_proxy,
             backdrop_import,
+            llm_chat,
+            mcp_start,
+            mcp_stop,
+            mcp_status,
+            mcp_reply,
+            secret_has,
+            llm_cancel,
             backdrop_read,
             monitor_local,
             monitor_remote,

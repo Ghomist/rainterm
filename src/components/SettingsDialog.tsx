@@ -1,4 +1,4 @@
-import { Globe, Keyboard, Lock, Palette, Plus, RotateCcw, Sparkles, SquareTerminal, Trash2 } from "lucide-react";
+import { Bot, Globe, Keyboard, Lock, Palette, Plus, RotateCcw, Sparkles, SquareTerminal, Trash2 } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -13,13 +13,15 @@ import { useApp } from "@/store/app";
 import { NumberInput, Select, Slider, Switch } from "@/components/ui/controls";
 import { Check, Field, Segmented } from "./dialogs";
 import { NetworkSection } from "./proxy";
+import { AgentSection } from "./settings-agent";
 import { KeyboardSection } from "./settings-keyboard";
 
-type Section = "appearance" | "terminal" | "network" | "highlight" | "keyboard" | "security";
+type Section = "appearance" | "terminal" | "agent" | "network" | "highlight" | "keyboard" | "security";
 
 const sections: { id: Section; label: string; icon: React.ReactNode }[] = [
   { id: "appearance", label: "Appearance", icon: <Palette /> },
   { id: "terminal", label: "Terminal", icon: <SquareTerminal /> },
+  { id: "agent", label: "Agent", icon: <Bot /> },
   { id: "network", label: "Network", icon: <Globe /> },
   { id: "highlight", label: "Highlighting", icon: <Sparkles /> },
   { id: "keyboard", label: "Shortcuts", icon: <Keyboard /> },
@@ -66,10 +68,11 @@ export function SettingsDialog() {
             initial={{ opacity: 0, x: 6 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.15 }}
-            className="grid gap-4"
+            className="grid grid-cols-[minmax(0,1fr)] gap-4"
           >
             {section === "appearance" && <Appearance />}
             {section === "terminal" && <TerminalSection />}
+            {section === "agent" && <AgentSection />}
             {section === "network" && <NetworkSection />}
             {section === "highlight" && <HighlightSection />}
             {section === "keyboard" && <KeyboardSection />}
@@ -341,11 +344,13 @@ function TerminalSection() {
         <Check checked={s.rightClickPaste} onChange={(v) => void update({ rightClickPaste: v })}>
           Right click copies selection / pastes
         </Check>
-        <Check checked={s.shellIntegration} onChange={(v) => void update({ shellIntegration: v })}>
-          Shell integration for SSH (bash/zsh): precise command folding + file panel follows cd
+        <Check checked={s.sshAutoIntegration} onChange={(v) => void update({ sshAutoIntegration: v })}>
+          Set up shell integration automatically on SSH connect (types one setup line at the first
+          prompt — can answer login-time questions by mistake; you can also enable it per terminal from
+          the command palette)
         </Check>
         <Check checked={s.suggestions} onChange={(v) => void update({ suggestions: v })}>
-          Completion popup while typing: history + file paths (Tab to accept)
+          Completion suggestions while typing: history, commands, paths (Ctrl+Space to pick)
         </Check>
         <Check checked={s.monitorRemote} onChange={(v) => void update({ monitorRemote: v })}>
           Monitor SSH hosts (runs a small read-only command on the server every few seconds)

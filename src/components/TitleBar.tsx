@@ -183,18 +183,28 @@ function TabItem({ tab }: { tab: Tab }) {
           }}
           onDoubleClick={() => void rename()}
           className={cn(
-            "group relative flex h-7.5 w-48 min-w-28 shrink items-center gap-2 rounded-md px-2.5 text-[12.5px] transition-colors duration-150",
-            active ? "text-foreground" : "text-muted-foreground hover:bg-ov/[0.04] hover:text-foreground",
+            // Full title-bar height, so the accent strip can sit on the window's top edge.
+            "group relative flex h-full w-48 min-w-28 shrink items-center gap-2 px-2.5 text-[12.5px] transition-colors duration-150",
+            // Like the side rails: no background block; the selected tab lights up and
+            // carries a glowing accent strip flush with the window edge.
+            active ? "text-foreground" : "text-muted-foreground hover:text-foreground",
           )}
         >
           {active && (
             <motion.div
               layoutId="active-tab"
               transition={spring}
-              className="absolute inset-0 rounded-md bg-ov/[0.08] shadow-[inset_0_1px_0_color-mix(in_oklab,var(--ov)_6%,transparent)]"
+              className="absolute inset-x-2.5 top-0 h-[2px] rounded-b-full bg-primary shadow-[0_0_8px_var(--primary)]"
             />
           )}
-          <Icon className="relative size-3.5 shrink-0 opacity-80" />
+          <Icon
+            className={cn(
+              "relative size-3.5 shrink-0 transition-[color,filter] duration-200",
+              active
+                ? "text-primary drop-shadow-[0_0_5px_color-mix(in_oklab,var(--primary)_70%,transparent)]"
+                : "opacity-80 group-hover:drop-shadow-[0_0_4px_color-mix(in_oklab,var(--foreground)_40%,transparent)]",
+            )}
+          />
           <span className="relative min-w-0 flex-1 truncate">{title}</span>
           {groups && (
             <span className="relative flex -space-x-1">

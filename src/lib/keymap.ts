@@ -42,6 +42,7 @@ export const ACTIONS: ActionDef[] = [
 
   { id: "find", label: "Find in terminal", group: "Terminal", keys: ["Ctrl+Shift+F"] },
   { id: "broadcast", label: "Broadcast input", group: "Terminal", keys: ["Ctrl+Shift+I"] },
+  { id: "agent", label: "Ask the agent (in this terminal)", group: "Terminal", keys: ["Ctrl+I"] },
   { id: "foldAll", label: "Fold all output", group: "Terminal", keys: ["Ctrl+Shift+["] },
   { id: "unfoldAll", label: "Unfold all output", group: "Terminal", keys: ["Ctrl+Shift+]"] },
 

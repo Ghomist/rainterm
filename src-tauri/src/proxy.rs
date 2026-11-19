@@ -211,9 +211,118 @@ pub async fn test(proxy: &ProxySpec, host: &str, port: u16) -> anyhow::Result<u6
     Ok(t.elapsed().as_millis() as u64)
 }
 
+// ------------------------------------------------------------------ system proxy
+
+/// The OS-wide proxy settings, as far as they can be read.
+#[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SystemProxy {
+    /// HTTP(S) proxy as "host:port".
+    pub http: Option<String>,
+    /// SOCKS proxy as "host:port".
+    pub socks: Option<String>,
+    /// Where it came from ("Windows settings", "macOS network settings", "environment").
+    pub source: String,
+}
+
+fn host_port(s: &str) -> Option<String> {
+    let s = s.trim();
+    let s = s.split("://").last().unwrap_or(s).trim_end_matches('/');
+    let s = s.rsplit('@').next().unwrap_or(s);
+    if s.is_empty() {
+        return None;
+    }
+    // A bare host means the protocol's usual port; proxies nearly always state one.
+    Some(if s.rsplit_once(':').is_some_and(|(_, p)| p.parse::<u16>().is_ok()) { s.to_string() } else { format!("{s}:80") })
+}
+
+/// "127.0.0.1:7890" or "http=a:1;https=a:1;socks=a:2" (Windows' ProxyServer format).
+pub fn parse_windows_proxy_server(v: &str) -> SystemProxy {
+    let mut out = SystemProxy { source: "Windows settings".into(), ..Default::default() };
+    if !v.contains('=') {
+        out.http = host_port(v);
+        return out;
+    }
+    for part in v.split(';') {
+        let Some((k, val)) = part.split_once('=') else { continue };
+        match k.trim().to_ascii_lowercase().as_str() {
+            "http" | "https" if out.http.is_none() => out.http = host_port(val),
+            "socks" | "socks5" => out.socks = host_port(val),
+            _ => {}
+        }
+    }
+    out
+}
+
+pub fn system_proxy() -> SystemProxy {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let out = std::process::Command::new("reg")
+            .args(["query", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings"])
+            .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
+            .output();
+        if let Ok(o) = out {
+            let text = String::from_utf8_lossy(&o.stdout);
+            let val = |name: &str| {
+                text.lines().find_map(|l| {
+                    let mut it = l.split_whitespace();
+                    (it.next() == Some(name)).then(|| it.skip(1).collect::<Vec<_>>().join(" "))
+                })
+            };
+            let enabled = val("ProxyEnable").is_some_and(|v| v.trim() == "0x1");
+            if let (true, Some(server)) = (enabled, val("ProxyServer")) {
+                return parse_windows_proxy_server(&server);
+            }
+        }
+        SystemProxy { source: "Windows settings".into(), ..Default::default() }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let text = std::process::Command::new("scutil")
+            .arg("--proxy")
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+            .unwrap_or_default();
+        let get = |k: &str| {
+            text.lines().find_map(|l| {
+                let (a, b) = l.split_once(':')?;
+                (a.trim() == k).then(|| b.trim().to_string())
+            })
+        };
+        let pair = |en: &str, host: &str, port: &str| {
+            (get(en).as_deref() == Some("1")).then(|| format!("{}:{}", get(host).unwrap_or_default(), get(port).unwrap_or_default()))
+        };
+        SystemProxy {
+            http: pair("HTTPSEnable", "HTTPSProxy", "HTTPSPort").or_else(|| pair("HTTPEnable", "HTTPProxy", "HTTPPort")),
+            socks: pair("SOCKSEnable", "SOCKSProxy", "SOCKSPort"),
+            source: "macOS network settings".into(),
+        }
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        let env = |k: &str| std::env::var(k).ok().or_else(|| std::env::var(k.to_uppercase()).ok()).filter(|v| !v.is_empty());
+        let all = env("all_proxy");
+        let socks = all.as_deref().filter(|v| v.starts_with("socks")).and_then(host_port);
+        let http = env("https_proxy").or_else(|| env("http_proxy")).or(all.filter(|v| !v.starts_with("socks"))).as_deref().and_then(host_port);
+        SystemProxy { http, socks, source: "environment".into() }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn windows_proxy_formats() {
+        let a = parse_windows_proxy_server("127.0.0.1:7890");
+        assert_eq!(a.http.as_deref(), Some("127.0.0.1:7890"));
+        assert_eq!(a.socks, None);
+        let b = parse_windows_proxy_server("http=127.0.0.1:7890;https=127.0.0.1:7890;socks=127.0.0.1:7891");
+        assert_eq!(b.http.as_deref(), Some("127.0.0.1:7890"));
+        assert_eq!(b.socks.as_deref(), Some("127.0.0.1:7891"));
+        assert_eq!(host_port("http://user:pw@proxy.local:3128/").as_deref(), Some("proxy.local:3128"));
+    }
 
     #[test]
     fn b64() {

@@ -33,6 +33,9 @@ export interface Block {
   end: IMarker | null;
   fold: Fold | null;
   startedAt: number;
+  /** Row the cursor was on when Enter was pressed = last row of the command, however the
+   *  shell wrapped or redrew it. Output starts on the row after. */
+  inputEnd: IMarker | null;
 }
 
 /** What the user is typing at the current prompt. */
@@ -287,12 +290,14 @@ export class Blocks {
     const prompt = live(this.pending) && this.pending.line <= row ? this.pending : null;
     if (live(this.pending) && !prompt) this.pending.dispose();
     this.pending = null;
-    const block: Block = { marker, command, prompt, exitCode: null, end: null, fold: null, startedAt: Date.now() };
+    const inputEnd = cursor > row ? (this.term.registerMarker(0) ?? null) : null;
+    const block: Block = { marker, command, prompt, exitCode: null, end: null, fold: null, startedAt: Date.now(), inputEnd };
     marker.onDispose(() => {
       const i = this.list.indexOf(block);
       if (i >= 0) this.list.splice(i, 1);
       if (live(block.prompt)) block.prompt.dispose();
       if (live(block.end)) block.end.dispose();
+      if (live(block.inputEnd)) block.inputEnd.dispose();
       this.emit();
     });
     this.list.push(block);
@@ -310,7 +315,9 @@ export class Blocks {
     if (!b || !live(b.marker)) return null;
     const buf = this.term.buffer.normal;
     // Output starts after the (possibly wrapped) command line.
-    let start = b.marker.line + 1;
+    // Output starts after the command's last row: where the cursor was at Enter (a long
+    // command the shell redrew itself isn't marked as soft-wrapped, so don't rely on that).
+    let start = live(b.inputEnd) ? b.inputEnd.line + 1 : b.marker.line + 1;
     while (buf.getLine(start)?.isWrapped) start++;
     const next = this.list[i + 1];
     let stop: number | null = null;

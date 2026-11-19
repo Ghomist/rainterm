@@ -13,7 +13,9 @@ import { TitleBar } from "@/components/TitleBar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ipc } from "@/lib/ipc";
 import { comboFromEvent, keymap, recording } from "@/lib/keymap";
+import { AGENT_INPUT_ID } from "@/components/AgentPanel";
 import { useLatencyPolling } from "@/lib/latency";
+import { useMcpServer } from "@/lib/mcp";
 import { machineKey, pollMachine } from "@/lib/monitor";
 import { confirm } from "@/lib/overlay";
 import { themeById } from "@/lib/term-theme";
@@ -188,6 +190,21 @@ function runAction(action: string, pane: ReturnType<typeof useApp.getState>["pan
     case "settings": return s.set({ settingsOpen: true });
     case "find": return s.set({ searchOpen: true });
     case "broadcast": return s.toggleBroadcast();
+    case "agent": {
+      if (document.activeElement?.id === AGENT_INPUT_ID) {
+        pane?.session.focus();
+        return;
+      }
+      s.toggleView("agent", true);
+      // The view may mount (and only then listen) a frame or two later.
+      const focus = (n: number) => {
+        const el = document.getElementById(AGENT_INPUT_ID);
+        if (el) el.focus();
+        else if (n > 0) setTimeout(() => focus(n - 1), 60);
+      };
+      focus(10);
+      return;
+    }
     case "foldAll": return pane?.session.blocks.foldAll();
     case "unfoldAll": return pane?.session.blocks.unfoldAll();
     case "newSsh": return s.set({ profileEditor: { kind: "ssh" } });
@@ -218,6 +235,7 @@ function useIdleLock() {
 /** Background polling (monitor, SSH latency). A component of its own so that what it
  *  watches (active tab, panel open, connections) doesn't re-render the whole app. */
 function Pollers() {
+  useMcpServer();
   const sshIds = useApp((s) =>
     Object.values(s.panes)
       .filter((p) => p.kind === "ssh" && p.status === "connected" && p.session.sessionId)

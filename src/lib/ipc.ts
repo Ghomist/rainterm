@@ -97,6 +97,52 @@ export interface SshTarget {
   proxy?: ProxySpec | null;
 }
 
+// ---- built-in agent: normalized conversation (see src-tauri/src/llm.rs)
+export interface LlmConfig {
+  format: "openai" | "anthropic";
+  baseUrl: string;
+  model: string;
+  maxTokens: number;
+  effort?: string | null;
+  proxy?: string | null;
+}
+
+export type LlmBlock =
+  | { type: "text"; text: string }
+  | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
+  | { type: "tool_result"; tool_use_id: string; content: string; is_error?: boolean }
+  | { type: "thinking"; text: string; raw?: unknown };
+
+export interface LlmMessage {
+  role: "user" | "assistant";
+  content: LlmBlock[];
+}
+
+export interface LlmToolDef {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+}
+
+export interface LlmRequest {
+  system: string;
+  messages: LlmMessage[];
+  tools: LlmToolDef[];
+}
+
+export type LlmEvent =
+  | { type: "textDelta"; text: string }
+  | { type: "thinkingDelta"; text: string }
+  | { type: "block"; block: LlmBlock }
+  | { type: "done"; stopReason: string; inputTokens: number; outputTokens: number }
+  | { type: "error"; message: string };
+
+export interface SystemProxy {
+  http?: string | null;
+  socks?: string | null;
+  source: string;
+}
+
 export interface ProxySpec {
   kind: "socks5" | "http";
   host: string;
@@ -121,7 +167,7 @@ export interface PortInfo {
 export type SessionEvent =
   | { type: "connecting" }
   | { type: "connected" }
-  | { type: "hostKeyPrompt"; host: string; port: number; keyType: string; fingerprint: string }
+  | { type: "hostKeyPrompt"; host: string; port: number; keyType: string; fingerprint: string; changed: boolean }
   | { type: "secretRequired"; kind: SecretKind; message: string }
   | { type: "error"; message: string }
   | { type: "exit"; code: number | null };
@@ -235,7 +281,16 @@ export const ipc = {
   sshForwardStop: (sessionId: string, localPort: number) => invoke<boolean>("ssh_forward_stop", { sessionId, localPort }),
   backdropImport: (src: string) => invoke<string>("backdrop_import", { src }),
   backdropRead: (path: string) => invoke<ArrayBuffer>("backdrop_read", { path }),
+  llmChat: (id: string, config: LlmConfig, request: LlmRequest, onEvent: Channel<LlmEvent>) =>
+    invoke<void>("llm_chat", { id, config, request, onEvent }),
+  llmCancel: (id: string) => invoke<boolean>("llm_cancel", { id }),
+  mcpStart: (host: string, port: number, token: string) => invoke<string>("mcp_start", { host, port, token }),
+  mcpStop: () => invoke<void>("mcp_stop"),
+  mcpStatus: () => invoke<string | null>("mcp_status"),
+  mcpReply: (id: number, result: unknown) => invoke<void>("mcp_reply", { id, result }),
+  secretHas: (key: string) => invoke<boolean>("secret_has", { key }),
   sshPing: (sessionId: string) => invoke<number>("ssh_ping", { sessionId }),
+  systemProxy: () => invoke<SystemProxy>("system_proxy"),
   proxyTest: (proxy: ProxySpec, host: string, port: number) => invoke<number>("proxy_test", { proxy, host, port }),
   sshConfigHosts: () => invoke<[SshConfigHost[], string]>("ssh_config_hosts"),
   setHighlightRules: (rules: HighlightRule[]) => invoke<string[]>("set_highlight_rules", { rules }),

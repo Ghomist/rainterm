@@ -84,7 +84,10 @@ export function SuggestOverlay({ session, left }: { session: TermSession; left: 
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, transition: { duration: 0.07 } }}
             transition={{ duration: 0.11, ease: "easeOut" }}
-            className="pointer-events-auto absolute w-max max-w-[min(560px,92%)] min-w-56 overflow-hidden rounded-lg border border-ov/10 bg-popover shadow-xl shadow-shadow"
+            className={cn(
+              "pointer-events-auto absolute w-max max-w-[min(560px,92%)] min-w-56 overflow-hidden rounded-lg border bg-popover shadow-xl shadow-shadow transition-opacity duration-150",
+              "border-ov/10",
+            )}
             style={{
               left: Math.max(4, Math.min(geo.x - 6, geo.hostW - 260)),
               ...(below ? { top: geo.y + geo.cellH + 4 } : { bottom: geo.hostH - geo.y + 4 }),
@@ -103,12 +106,12 @@ export function SuggestOverlay({ session, left }: { session: TermSession; left: 
                   <button
                     type="button"
                     key={`${c.kind}:${c.label}`}
-                    data-selected={i === popup.index}
+                    data-selected={popup.active && i === popup.index}
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => session.acceptCompletion(c)}
                     className={cn(
                       "flex h-[26px] w-full items-center gap-2 rounded-md px-2 text-left text-[12.5px] transition-colors duration-75",
-                      i === popup.index ? "bg-primary/15 text-foreground" : "text-foreground/80 hover:bg-ov/[0.06]",
+                      popup.active && i === popup.index ? "bg-primary/15 text-foreground" : "text-foreground/80 hover:bg-ov/[0.06]",
                     )}
                     style={{ fontFamily: font }}
                   >
@@ -124,7 +127,7 @@ export function SuggestOverlay({ session, left }: { session: TermSession; left: 
             <div className="flex items-center gap-3 border-t border-ov/[0.06] px-2.5 py-1 text-[10.5px] text-muted-foreground">
               <span>↑↓ select</span>
               <span>Tab accept</span>
-              <span>Esc close</span>
+              <span>Esc / ↑ at top close</span>
             </div>
           </motion.div>
         )}

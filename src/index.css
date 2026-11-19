@@ -267,3 +267,21 @@ html.dark [data-glass="on"] .xterm-screen {
 [data-glass="on"] .xterm .xterm-scrollable-element {
   background-color: transparent !important;
 }
+
+/* Agent "Thinking…" label: a soft sweep of light across the text. */
+.shimmer {
+  background: linear-gradient(90deg, var(--muted-foreground) 30%, var(--foreground) 50%, var(--muted-foreground) 70%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 1.6s linear infinite;
+}
+@keyframes shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}

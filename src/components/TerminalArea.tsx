@@ -12,7 +12,9 @@ import {
   SquareTerminal,
   Users,
   X,
+  Sparkles,
 } from "lucide-react";
+import { toast } from "@/lib/overlay";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -27,6 +29,7 @@ import { Kbd } from "@/components/ui/input";
 import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { groupById, INPUT_GROUPS, type Layout, type Pane, type Tab, useApp } from "@/store/app";
+import { AgentBar } from "./AgentBar";
 import { Backdrop } from "./Backdrop";
 import { Gutter, gutterWidth } from "./Gutter";
 import { Latency } from "./Latency";
@@ -231,7 +234,7 @@ function TerminalPane({
     >
       {showHeader && <PaneHeader pane={pane} focused={focused} multi={multi} zoomed={zoomed} />}
       <div
-        className="relative min-h-0 flex-1"
+        className="relative min-h-0 flex-1 overflow-hidden"
         data-glass={glass != null ? "on" : undefined}
         style={glass != null ? { background: `color-mix(in srgb, var(--surface) ${Math.round(glass * 100)}%, transparent)` } : undefined}
       >
@@ -247,6 +250,8 @@ function TerminalPane({
           )}
         />
       </div>
+
+      <AgentBar pane={pane} />
 
       <AnimatePresence>
         {ended && visible && (
@@ -394,6 +399,16 @@ export function PaneMenu({ pane, multi, zoomed }: { pane: Pane; multi: boolean; 
       <ContextMenuSeparator />
       <GroupPicker pane={pane} onPick={(g) => setPaneGroup(pane.id, g)} />
       <ContextMenuSeparator />
+      {pane.kind === "ssh" && pane.session.alive && !pane.session.blocks.integrated && (
+        <ContextMenuItem
+          onSelect={act(() => {
+            const why = pane.session.enableIntegration();
+            if (why) toast({ kind: "info", title: why });
+          })}
+        >
+          <Sparkles /> Enable shell integration
+        </ContextMenuItem>
+      )}
       {!pane.session.alive && (
         <ContextMenuItem onSelect={() => reconnect(pane.id)}>
           <RotateCw /> Reconnect

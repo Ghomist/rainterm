@@ -1,11 +1,11 @@
 import type { HighlightRule } from "./ipc";
 
 /** Tool views that live in the side docks. */
-export type ViewId = "sessions" | "files" | "monitor" | "snippets" | "ports" | "containers" | "k8s";
+export type ViewId = "sessions" | "agent" | "files" | "monitor" | "snippets" | "ports" | "containers" | "k8s";
 export type DockSide = "left" | "right";
-export const ALL_VIEWS: ViewId[] = ["sessions", "files", "monitor", "snippets", "ports", "containers", "k8s"];
+export const ALL_VIEWS: ViewId[] = ["sessions", "agent", "files", "monitor", "snippets", "ports", "containers", "k8s"];
 export const DEFAULT_DOCK: Record<DockSide, ViewId[]> = {
-  left: ["sessions", "files", "snippets"],
+  left: ["sessions", "agent", "files", "snippets"],
   right: ["monitor", "ports", "containers", "k8s"],
 };
 
@@ -21,6 +21,46 @@ export interface ProxyDef {
 }
 
 export const proxyLabel = (p: ProxyDef) => p.name || `${p.kind === "http" ? "HTTP" : "SOCKS5"} ${p.host}:${p.port}`;
+
+/** How much the built-in agent may do on its own. */
+export type AgentAutonomy = "suggest" | "confirm" | "auto";
+
+export interface AgentSettings {
+  /** Wire format: OpenAI-compatible Chat Completions, or Anthropic Messages. */
+  format: "openai" | "anthropic";
+  baseUrl: string;
+  model: string;
+  maxTokens: number;
+  /** Optional reasoning effort ("low" | "medium" | "high" …); "" = provider default. */
+  effort: string;
+  /** A saved proxy id for model requests (null = direct). */
+  proxy: string | null;
+  autonomy: AgentAutonomy;
+}
+
+export const DEFAULT_AGENT: AgentSettings = {
+  format: "openai",
+  baseUrl: "https://api.deepseek.com",
+  model: "",
+  maxTokens: 8192,
+  effort: "",
+  proxy: null,
+  autonomy: "confirm",
+};
+
+/** MCP server: lets other agents use rainterm's terminals over HTTP. */
+export interface McpSettings {
+  enabled: boolean;
+  /** Listen address: 127.0.0.1 = this computer only. */
+  host: string;
+  port: number;
+  /** Bearer token clients must send (generated on first enable). */
+  token: string;
+  /** Same meaning as the built-in agent's modes, applied to MCP clients. */
+  autonomy: AgentAutonomy;
+}
+
+export const DEFAULT_MCP: McpSettings = { enabled: false, host: "127.0.0.1", port: 7323, token: "", autonomy: "confirm" };
 
 /** Behind the terminals: plain color, the animated weather scene, or the user's picture. */
 export type Backdrop = "none" | "weather" | "image";
@@ -43,7 +83,9 @@ export interface Settings {
   /** Native window translucency (Mica). Off = solid, theme-colored chrome. */
   mica: boolean;
   /** Auto-install the bash/zsh prompt hook in SSH sessions (folding + cwd sync). */
-  shellIntegration: boolean;
+  /** Type the bash/zsh/fish prompt hook into new SSH sessions automatically. Off by
+   *  default: typed at the wrong moment it answers login-time questions (omz updates…). */
+  sshAutoIntegration: boolean;
   /** Reopen last session's tabs and splits on launch. */
   restoreSession: boolean;
   /** Completion popup while typing (history + paths); Ctrl+Space opens it manually. */
@@ -96,6 +138,8 @@ export interface Settings {
   weatherIntensity: number;
   /** 0.3–0.97: how solid the terminal "glass" over the background is. */
   glassOpacity: number;
+  agent: AgentSettings;
+  mcp: McpSettings;
 }
 
 export const DEFAULT_FONT =
@@ -115,7 +159,7 @@ export const DEFAULT_SETTINGS: Settings = {
   downloadDir: null,
   showHiddenFiles: false,
   mica: false,
-  shellIntegration: true,
+  sshAutoIntegration: false,
   restoreSession: true,
   suggestions: true,
   monitorRemote: true,
@@ -149,6 +193,8 @@ export const DEFAULT_SETTINGS: Settings = {
   backdropBlur: 0,
   weatherIntensity: 0.6,
   glassOpacity: 0.6,
+  agent: DEFAULT_AGENT,
+  mcp: DEFAULT_MCP,
 };
 
 /** Every view exactly once, each in a dock; new views land in their default dock. */

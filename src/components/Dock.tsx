@@ -14,6 +14,7 @@ import {
   Server,
   Settings2,
   Ship,
+  Sparkles,
   Zap,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -31,6 +32,7 @@ import { Tooltip } from "@/components/ui/tooltip";
 import type { DockSide, ViewId } from "@/lib/settings";
 import { cn } from "@/lib/utils";
 import { useApp } from "@/store/app";
+import { AgentPanel } from "./AgentPanel";
 import { FilesView } from "./FilePanel";
 import { MonitorPanel } from "./MonitorPanel";
 import { ContainersPanel, K8sPanel, PortsPanel } from "./OpsPanels";
@@ -42,6 +44,7 @@ export const VIEWS: Record<ViewId, { label: string; icon: React.ReactNode; rende
   files: { label: "Files", icon: <FolderTree />, render: () => <FilesView /> },
   monitor: { label: "Resource monitor", icon: <Activity />, render: () => <MonitorPanel /> },
   snippets: { label: "Quick commands", icon: <Zap />, render: () => <SnippetsPanel /> },
+  agent: { label: "Agent", icon: <Sparkles />, render: () => <AgentPanel /> },
   ports: { label: "Ports", icon: <Network />, render: () => <PortsPanel /> },
   containers: { label: "Containers", icon: <Boxes />, render: () => <ContainersPanel /> },
   k8s: { label: "Kubernetes", icon: <Ship />, render: () => <K8sPanel /> },

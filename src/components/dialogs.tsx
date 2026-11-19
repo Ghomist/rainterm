@@ -185,7 +185,7 @@ function ProfileEditor() {
           className="grid gap-3"
           onSubmit={(e) => {
             e.preventDefault();
-            void submit(true);
+            void submit(false);
           }}
         >
           {p.kind === "ssh" ? (
@@ -211,11 +211,11 @@ function ProfileEditor() {
             </Field>
           </div>
           <DialogFooter>
-            <Button type="button" variant="ghost" onClick={() => void submit(false)} disabled={!valid}>
-              Save
+            <Button type="button" variant="ghost" onClick={() => set({ profileEditor: null })}>
+              Cancel
             </Button>
             <Button type="submit" disabled={!valid}>
-              Save & Connect
+              Save
             </Button>
           </DialogFooter>
         </form>
@@ -526,18 +526,36 @@ function HostKeyDialog() {
 
   return (
     <Dialog open={!!prompt} onOpenChange={(o) => !o && answer(false)}>
-      <DialogContent showClose={false} className="max-w-[min(460px,calc(100%-2rem))]">
+      <DialogContent showClose={false} className="max-w-[min(480px,calc(100%-2rem))]">
         <DialogHeader>
-          <div className="mb-1 flex size-9 items-center justify-center rounded-lg bg-warning/15 text-warning">
+          <div
+            className={cn(
+              "mb-1 flex size-9 items-center justify-center rounded-lg",
+              prompt?.changed ? "bg-destructive/15 text-destructive" : "bg-warning/15 text-warning",
+            )}
+          >
             <ShieldAlert className="size-4.5" />
           </div>
-          <DialogTitle>Unknown host</DialogTitle>
+          <DialogTitle>{prompt?.changed ? "Host key changed" : "Unknown host"}</DialogTitle>
           <DialogDescription>
-            The authenticity of{" "}
-            <span className="text-foreground">
-              {prompt?.host}:{prompt?.port}
-            </span>{" "}
-            can't be established. Verify the fingerprint before trusting it.
+            {prompt?.changed ? (
+              <>
+                <span className="text-foreground">
+                  {prompt.host}:{prompt.port}
+                </span>{" "}
+                presents a different key than the one saved in known_hosts. That's expected after the server was
+                reinstalled or its keys regenerated — otherwise someone may be intercepting the connection. Only
+                continue if you know why it changed.
+              </>
+            ) : (
+              <>
+                The authenticity of{" "}
+                <span className="text-foreground">
+                  {prompt?.host}:{prompt?.port}
+                </span>{" "}
+                can't be established. Verify the fingerprint before trusting it.
+              </>
+            )}
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-1 rounded-lg bg-inset p-3 font-mono text-[12px]">
@@ -548,9 +566,15 @@ function HostKeyDialog() {
           <Button variant="ghost" onClick={() => answer(false)}>
             Cancel
           </Button>
-          <Button autoFocus onClick={() => answer(true)}>
-            Trust & Connect
-          </Button>
+          {prompt?.changed ? (
+            <Button variant="destructive" onClick={() => answer(true)}>
+              Replace key & connect
+            </Button>
+          ) : (
+            <Button autoFocus onClick={() => answer(true)}>
+              Trust & Connect
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

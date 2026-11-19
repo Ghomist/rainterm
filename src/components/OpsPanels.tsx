@@ -19,6 +19,8 @@ import {
   SquareTerminal,
   Trash2,
   Unplug,
+  Copy,
+  Layers,
 } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -37,6 +39,7 @@ import { ipc, type PortEntry } from "@/lib/ipc";
 import { confirm, prompt, toast } from "@/lib/overlay";
 import { cn } from "@/lib/utils";
 import { useActivePane, useApp } from "@/store/app";
+import { openRunDialog, RunContainerDialog } from "./ContainerRun";
 
 // ------------------------------------------------------------------ shared
 
@@ -286,7 +289,34 @@ interface Forwarded {
 /** Live SSH forwards made from this panel, per session id. */
 const forwards = new Map<string, Forwarded[]>();
 
-const wildcard = (a: string) => a === "*" || a === "0.0.0.0" || a === "::";
+const wildcard = (a: string) => a === "*" || a === "0.0.0.0" || a === "::" || a === "[::]";
+
+/** One listening socket, with its IPv4 and IPv6 bindings folded together. */
+type PortRow = PortEntry & { addresses: string[] };
+
+function mergeFamilies(entries: PortEntry[]): PortRow[] {
+  const byKey = new Map<string, PortRow>();
+  for (const e of entries) {
+    const key = `${e.proto}|${e.port}|${e.pid ?? ""}|${e.process ?? ""}`;
+    const row = byKey.get(key);
+    if (!row) byKey.set(key, { ...e, addresses: [e.address] });
+    else if (!row.addresses.includes(e.address)) {
+      row.addresses.push(e.address);
+      // Address used for copy / forward: prefer the IPv4 one.
+      if (row.address.includes(":") && !e.address.includes(":")) row.address = e.address;
+    }
+  }
+  return [...byKey.values()];
+}
+
+/** "all interfaces", or the addresses, with the IP families it covers. */
+function bindLabel(addrs: string[]) {
+  const v4 = addrs.some((a) => !a.includes(":") || a === "*");
+  const v6 = addrs.some((a) => a.includes(":"));
+  const fam = v4 && v6 ? "IPv4 + IPv6" : v6 ? "IPv6" : "IPv4";
+  if (addrs.every(wildcard)) return `all interfaces · ${fam}`;
+  return `${addrs.join(", ")}${v4 && v6 ? ` · ${fam}` : ""}`;
+}
 
 export function PortsPanel() {
   const { target, reason } = useTarget();
@@ -303,10 +333,10 @@ export function PortsPanel() {
   const q = query.trim().toLowerCase();
   const list = useMemo(
     () =>
-      (data ?? []).filter(
+      mergeFamilies(data ?? []).filter(
         (p) =>
           (proto === "all" || p.proto === proto) &&
-          (!q || `${p.port} ${p.address} ${p.process ?? ""} ${p.pid ?? ""}`.toLowerCase().includes(q)),
+          (!q || `${p.port} ${p.addresses.join(" ")} ${p.process ?? ""} ${p.pid ?? ""}`.toLowerCase().includes(q)),
       ),
     [data, proto, q],
   );
@@ -419,14 +449,14 @@ export function PortsPanel() {
                 const web = p.proto === "tcp";
                 return (
                   <Row
-                    key={`${p.proto}${p.address}${p.port}`}
+                    key={`${p.proto}${p.port}${p.pid ?? ""}${p.addresses.join()}`}
                     title={
                       <span className="flex items-baseline gap-2">
                         <span className="font-mono text-[12.5px] font-medium">{p.port}</span>
                         <span className="truncate text-foreground/80">{p.process ?? "—"}</span>
                       </span>
                     }
-                    detail={`${p.proto.toUpperCase()} · ${p.address}${p.pid ? ` · pid ${p.pid}` : ""}`}
+                    detail={`${p.proto.toUpperCase()} · ${bindLabel(p.addresses)}${p.pid ? ` · pid ${p.pid}` : ""}`}
                     actions={
                       <>
                         {web && local && (
@@ -516,6 +546,7 @@ export function ContainersPanel() {
   const { target, reason } = useTarget();
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+  const [view, setView] = useState<"containers" | "images">("containers");
   const { data, error, loading, refresh } = usePoll(
     target?.key ?? null,
     async () => {
@@ -539,8 +570,64 @@ export function ContainersPanel() {
     5000,
   );
 
+  const images = usePoll(
+    view === "images" && target ? `${target.key}:images` : null,
+    async () => {
+      const tool = await containerTool(target!);
+      const out = await run(target!, tool, [
+        "images",
+        "--format",
+        ["{{.Repository}}", "{{.Tag}}", "{{.ID}}", "{{.Size}}", "{{.CreatedSince}}"].join(SEP),
+      ]);
+      return out
+        .split("\n")
+        .filter((l) => l.includes(SEP))
+        .map((l) => {
+          const [repo, tag, id, size, created] = l.split(SEP);
+          return { repo, tag, id, size, created, ref: tag && tag !== "<none>" ? `${repo}:${tag}` : id };
+        });
+    },
+    15000,
+  );
+
   const q = query.trim().toLowerCase();
   const list = (data?.list ?? []).filter((c) => !q || `${c.name} ${c.image} ${c.id} ${c.ports}`.toLowerCase().includes(q));
+  const imageList = (images.data ?? []).filter((i) => !q || `${i.repo} ${i.tag} ${i.id}`.toLowerCase().includes(q));
+
+  /** Containers made from an image (by ref, bare repo = :latest, or image id). */
+  const usersOf = (ref: string, id?: string) =>
+    (data?.list ?? []).filter((c) => {
+      const img = c.image;
+      return img === ref || `${img}:latest` === ref || img === ref.replace(/:latest$/, "") || (!!id && id.startsWith(img));
+    });
+  const runFrom = (image: string, from?: string, imageId?: string) => {
+    if (!target) return;
+    openRunDialog({
+      image,
+      tool: data?.tool ?? "docker",
+      earlier: usersOf(image, imageId).map((c) => ({ id: c.id, name: c.name })),
+      from,
+      exec: (args) => run(target, data?.tool ?? "docker", args),
+      onDone: () => refresh(),
+    });
+  };
+  const removeImage = async (i: { ref: string; id: string }) => {
+    if (!target) return;
+    const n = usersOf(i.ref, i.id).length;
+    const ok = await confirm({
+      title: `Remove image “${i.ref}”?`,
+      message: n ? `${n} container${n > 1 ? "s use" : " uses"} it — removal fails while they exist.` : "It can be pulled again later.",
+      confirmLabel: "Remove",
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await run(target, data?.tool ?? "docker", ["rmi", i.ref]);
+      images.refresh();
+    } catch (e) {
+      fail(`Couldn't remove ${i.ref}`, e);
+    }
+  };
   const tool = data?.tool ?? "docker";
   const running = (data?.list ?? []).filter((c) => c.state === "running").length;
 
@@ -568,7 +655,14 @@ export function ContainersPanel() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <Header title="Containers" icon={<Boxes />} target={target} loading={loading} onRefresh={refresh} />
+      <Header
+        title="Containers"
+        icon={<Boxes />}
+        target={target}
+        loading={view === "images" ? images.loading : loading}
+        onRefresh={view === "images" ? images.refresh : refresh}
+      />
+      <RunContainerDialog />
       {!target ? (
         <Empty icon={<Boxes />} text={reason} />
       ) : error && !data ? (
@@ -577,13 +671,69 @@ export function ContainersPanel() {
         <Empty icon={<Boxes className="animate-pulse" />} text="Asking docker…" />
       ) : (
         <>
-          <div className="px-2 pb-1.5">
-            <SearchField value={query} onChange={setQuery} placeholder="Name, image or port" />
+          <div className="grid gap-1.5 px-2 pb-1.5">
+            <Tabs
+              id="containers"
+              value={view}
+              onChange={setView}
+              options={[
+                { value: "containers", label: `Containers (${running}/${data.list.length})` },
+                { value: "images", label: images.data ? `Images (${images.data.length})` : "Images" },
+              ]}
+            />
+            <SearchField value={query} onChange={setQuery} placeholder={view === "images" ? "Repository, tag or ID" : "Name, image or port"} />
           </div>
-          <div className="px-3 pb-1 text-[11px] text-muted-foreground">
-            {running} running · {data.list.length} total · {tool}
-          </div>
-          {!list.length ? (
+          {view === "images" ? (
+            images.error && !images.data ? (
+              <Empty error text={images.error} />
+            ) : !images.data ? (
+              <Empty icon={<Layers className="animate-pulse" />} text="Listing images…" />
+            ) : !imageList.length ? (
+              <Empty icon={<Layers />} text={q ? "No matches" : "No images"} />
+            ) : (
+              <ScrollArea className="min-h-0 flex-1" viewportClassName="px-2 pb-2">
+                {imageList.map((i) => {
+                  const n = usersOf(i.ref, i.id).length;
+                  return (
+                    <Row
+                      key={i.id + i.ref}
+                      title={i.ref}
+                      detail={`${i.id.slice(0, 12)} · ${i.size} · ${i.created}${n ? ` · ${n} container${n > 1 ? "s" : ""}` : ""}`}
+                      actions={
+                        <Act tip="Run a container…" onClick={() => runFrom(i.ref, undefined, i.id)}>
+                          <Play />
+                        </Act>
+                      }
+                      menu={
+                        <>
+                          <ContextMenuItem onSelect={() => typeInto(`${tool} image inspect ${i.ref}`)}>
+                            <FileText /> Inspect
+                          </ContextMenuItem>
+                          <ContextMenuItem onSelect={() => typeInto(`${tool} history ${i.ref}`)}>
+                            <FileText /> Layer history
+                          </ContextMenuItem>
+                          <ContextMenuItem onSelect={() => copy(i.ref)}>
+                            <ClipboardCopy /> Copy name
+                          </ContextMenuItem>
+                          <ContextMenuSeparator />
+                          <ContextMenuItem onSelect={() => runFrom(i.ref, undefined, i.id)}>
+                            <Play /> Run a container…
+                          </ContextMenuItem>
+                          <ContextMenuItem onSelect={() => typeInto(`${tool} pull ${i.ref}`)}>
+                            <RotateCw /> Pull again
+                          </ContextMenuItem>
+                          <ContextMenuSeparator />
+                          <ContextMenuItem destructive onSelect={() => void removeImage(i)}>
+                            <Trash2 /> Remove image
+                          </ContextMenuItem>
+                        </>
+                      }
+                    />
+                  );
+                })}
+              </ScrollArea>
+            )
+          ) : !list.length ? (
             <Empty icon={<Boxes />} text={q ? "No matches" : "No containers"} />
           ) : (
             <ScrollArea className="min-h-0 flex-1" viewportClassName="px-2 pb-2">
@@ -620,6 +770,7 @@ export function ContainersPanel() {
                     }
                     menu={
                       <>
+                        {/* Looking first; anything that changes the container last. */}
                         {up ? (
                           <>
                             <ContextMenuItem onSelect={() => typeInto(`${tool} logs -f --tail 200 ${c.name}`)}>
@@ -628,7 +779,24 @@ export function ContainersPanel() {
                             <ContextMenuItem onSelect={() => typeInto(`${tool} exec -it ${c.name} sh`)}>
                               <SquareTerminal /> Open shell
                             </ContextMenuItem>
-                            <ContextMenuSeparator />
+                          </>
+                        ) : (
+                          <ContextMenuItem onSelect={() => typeInto(`${tool} logs --tail 200 ${c.name}`)}>
+                            <FileText /> Show logs
+                          </ContextMenuItem>
+                        )}
+                        <ContextMenuItem onSelect={() => typeInto(`${tool} inspect ${c.name}`)}>
+                          <FileText /> Inspect
+                        </ContextMenuItem>
+                        <ContextMenuItem onSelect={() => copy(c.id)}>
+                          <ClipboardCopy /> Copy ID
+                        </ContextMenuItem>
+                        <ContextMenuSeparator />
+                        <ContextMenuItem onSelect={() => runFrom(c.image, c.id)}>
+                          <Copy /> Run a copy…
+                        </ContextMenuItem>
+                        {up ? (
+                          <>
                             <ContextMenuItem onSelect={() => void act(c, "restart", "restart")}>
                               <RotateCw /> Restart
                             </ContextMenuItem>
@@ -637,21 +805,10 @@ export function ContainersPanel() {
                             </ContextMenuItem>
                           </>
                         ) : (
-                          <>
-                            <ContextMenuItem onSelect={() => void act(c, "start", "start")}>
-                              <Play /> Start
-                            </ContextMenuItem>
-                            <ContextMenuItem onSelect={() => typeInto(`${tool} logs --tail 200 ${c.name}`)}>
-                              <FileText /> Show logs
-                            </ContextMenuItem>
-                          </>
+                          <ContextMenuItem onSelect={() => void act(c, "start", "start")}>
+                            <Play /> Start
+                          </ContextMenuItem>
                         )}
-                        <ContextMenuItem onSelect={() => typeInto(`${tool} inspect ${c.name}`)}>
-                          <FileText /> Inspect
-                        </ContextMenuItem>
-                        <ContextMenuItem onSelect={() => copy(c.id)}>
-                          <ClipboardCopy /> Copy ID
-                        </ContextMenuItem>
                         <ContextMenuSeparator />
                         <ContextMenuItem destructive onSelect={() => void act(c, "rm", "remove")}>
                           <Trash2 /> Remove
@@ -883,6 +1040,16 @@ export function K8sPanel() {
                       }
                       menu={
                         <>
+                          <ContextMenuItem onSelect={() => typeInto(`kubectl rollout status deployment ${nsFlag(dns)} ${name}`)}>
+                            <FileText /> Rollout status
+                          </ContextMenuItem>
+                          <ContextMenuItem onSelect={() => typeInto(`kubectl describe deployment ${nsFlag(dns)} ${name}`)}>
+                            <FileText /> Describe
+                          </ContextMenuItem>
+                          <ContextMenuItem onSelect={() => copy(name)}>
+                            <ClipboardCopy /> Copy name
+                          </ContextMenuItem>
+                          <ContextMenuSeparator />
                           <ContextMenuItem
                             onSelect={async () => {
                               const ok = await confirm({
@@ -909,15 +1076,6 @@ export function K8sPanel() {
                             }}
                           >
                             <Scaling /> Scale…
-                          </ContextMenuItem>
-                          <ContextMenuItem onSelect={() => typeInto(`kubectl rollout status deployment ${nsFlag(dns)} ${name}`)}>
-                            <FileText /> Rollout status
-                          </ContextMenuItem>
-                          <ContextMenuItem onSelect={() => typeInto(`kubectl describe deployment ${nsFlag(dns)} ${name}`)}>
-                            <FileText /> Describe
-                          </ContextMenuItem>
-                          <ContextMenuItem onSelect={() => copy(name)}>
-                            <ClipboardCopy /> Copy name
                           </ContextMenuItem>
                         </>
                       }

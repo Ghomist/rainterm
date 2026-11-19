@@ -163,8 +163,11 @@ export class TermSession {
         this.logTimer = window.setTimeout(() => this.flushLog(), 300);
     });
 
-    this.term.onData((d) => this.input(d, true));
-    this.term.onBinary((d) => this.input(d, true));
+    this.term.onWriteParsed(() => {
+      this.lastOutputAt = performance.now();
+    });
+    this.term.onData((d) => this.keyboard(d));
+    this.term.onBinary((d) => this.keyboard(d));
     // The grid follows the layout every frame; the PTY / SSH side only gets the size once
     // it settles, so the shell isn't flooded with SIGWINCH (and prompt redraws) mid-animation.
     this.term.onResize(({ cols, rows }) => {
@@ -179,6 +182,37 @@ export class TermSession {
         void navigator.clipboard.writeText(this.term.getSelection());
     });
     this.term.attachCustomKeyEventHandler((e) => this.handleKey(e));
+  }
+
+  /** When output was last written to the terminal (performance.now()). */
+  lastOutputAt = 0;
+  private keyListeners = new Set<(data: string) => void>();
+
+  /** Keystrokes from the person at the keyboard (not agent / snippet input). */
+  onUserKeys(fn: (data: string) => void) {
+    this.keyListeners.add(fn);
+    return () => this.keyListeners.delete(fn);
+  }
+
+  private keyboard(data: string) {
+    for (const fn of this.keyListeners) fn(data);
+    // Typing = text or Backspace. Anything else (arrows for history, Tab for the shell's
+    // own completion, Ctrl+keys…) is not, and puts a passive popup away.
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: control keys
+    this.typing = !/[\x00-\x08\x0a-\x1f]/.test(data.replace(/\x7f/g, "")) && !data.includes("\t");
+    if (!this.typing && this.suggestion.popup) {
+      if (this.suggestTimer !== null) clearTimeout(this.suggestTimer), (this.suggestTimer = null);
+      this.suggestSeq++;
+      this.setPopup(null);
+    }
+    this.input(data, true);
+  }
+
+  /** Input typed by the built-in agent: feeds block detection (so its commands become
+   *  blocks) but is not mirrored to broadcast / input groups. */
+  agentInput(data: string) {
+    this.blocks.onUserInput(data);
+    if (this.id) void ipc.write(this.id, data);
   }
 
   /** Send input to the backend. `user` input also feeds block detection + broadcast. */
@@ -233,8 +267,15 @@ export class TermSession {
 
   // ---------------------------------------------------------------- suggestions
 
-  /** VS Code-style completion popup: history + file paths for the word being typed. */
-  suggestion: { popup: { items: Completion[]; index: number; navigated: boolean } | null } = { popup: null };
+  /**
+   * Completion popup: history + commands + file paths for the word being typed. It shows
+   * up after a short pause in typing (never while you browse history) and takes ↑↓ / Tab;
+   * ↑ on the first entry closes it and goes on to the shell (previous history command).
+   * Enter accepts only after you moved in the list. Ctrl+Space opens / closes it.
+   */
+  suggestion: { popup: { items: Completion[]; index: number; navigated: boolean; active: boolean } | null } = { popup: null };
+  /** The last key from the keyboard was typing (text / Backspace), not navigation. */
+  private typing = false;
   private suggestListeners = new Set<() => void>();
   private suggestTimer: number | null = null;
   private suggestSeq = 0;
@@ -276,10 +317,12 @@ export class TermSession {
 
   refreshSuggest() {
     if (this.suggestTimer !== null) clearTimeout(this.suggestTimer);
+    // Passive suggestions wait for a pause in typing; an active popup follows at once.
+    const delay = this.suggestion.popup || this.manual ? 60 : 300;
     this.suggestTimer = window.setTimeout(() => {
       this.suggestTimer = null;
       void this.computeSuggest();
-    }, 90);
+    }, delay);
   }
 
   private setPopup(popup: TermSession["suggestion"]["popup"]) {
@@ -291,7 +334,10 @@ export class TermSession {
   private async computeSuggest() {
     const focused = !!this.term.textarea && document.activeElement === this.term.textarea;
     const st = this.settings.suggestions && this.alive && focused ? this.blocks.inputState() : null;
-    if (!st || !st.atEnd || (!st.text && !this.manual)) {
+    // Only offer while you are typing: not when the line changed because you browsed
+    // history (↑↓) or the shell redrew it.
+    const showing = this.manual || !!this.suggestion.popup;
+    if (!st || !st.atEnd || (!st.text && !this.manual) || (!showing && !this.typing)) {
       this.manual = false;
       this.lastInputText = st?.text ?? "";
       return this.setPopup(null);
@@ -331,7 +377,7 @@ export class TermSession {
     }
     const prev = this.suggestion.popup;
     const keepIndex = prev && !changed ? Math.min(prev.index, items.length - 1) : 0;
-    this.setPopup({ items, index: keepIndex, navigated: !!prev?.navigated && !changed });
+    this.setPopup({ items, index: keepIndex, navigated: !!prev?.navigated && !changed, active: true });
   }
 
   private commandList(): Promise<string[]> {
@@ -411,10 +457,13 @@ export class TermSession {
       });
   }
 
+  /** Ctrl+Space: take over a passive popup, or open one right away. */
   openCompletions() {
     this.manual = true;
     this.dismissedFor = null;
-    void this.computeSuggest();
+    const p = this.suggestion.popup;
+    if (p) this.setPopup({ ...p, active: true, index: 0 });
+    else void this.computeSuggest();
     return true;
   }
 
@@ -527,7 +576,7 @@ export class TermSession {
     onData.onmessage = (msg) => this.onData(msg);
     onEvent.onmessage = (ev) => {
       if (ev.type === "exit") this.id = null;
-      if (ev.type === "connected" && this.source.kind === "ssh" && this.settings.shellIntegration)
+      if (ev.type === "connected" && this.source.kind === "ssh" && this.settings.sshAutoIntegration)
         void this.injectIntegration();
       if (ev.type === "connected") this.importHistory();
       this.onEvent(ev);
@@ -560,6 +609,19 @@ export class TermSession {
    * shell's first prompt mark comes back, so its echo never flashes on screen: the old
    * prompt row is then cleared and drawing resumes at the new prompt.
    */
+  /** Install the prompt hook now (command folding, exit codes, cwd tracking), on request.
+   *  Only at an idle prompt, so it can't answer some question the shell is asking. */
+  enableIntegration(): string | null {
+    if (this.source.kind !== "ssh") return "Only needed for SSH sessions — local shells are set up already.";
+    if (!this.alive) return "Not connected.";
+    if (this.blocks.integrated) return "Already enabled in this terminal.";
+    const st = this.blocks.inputState();
+    if (!st || st.text) return "Wait for an empty prompt first.";
+    this.hold = { chunks: [], text: "", timer: window.setTimeout(() => this.releaseHold(-1), 5000) };
+    this.input(`${POSIX_INTEGRATION}\r`);
+    return null;
+  }
+
   private async injectIntegration() {
     // Wait for the login banner / first prompt to settle.
     const t0 = performance.now();
@@ -740,6 +802,13 @@ export class TermSession {
     const popup = this.suggestion.popup;
     const plain = !e.ctrlKey && !e.altKey && !e.metaKey;
     if (popup) {
+      // ↑ on the first entry: you meant the shell's history — close and let it through.
+      if (plain && e.key === "ArrowUp" && popup.index === 0) {
+        this.closeCompletions();
+        this.keyboard(this.term.modes.applicationCursorKeysMode ? "\x1bOA" : "\x1b[A");
+        e.preventDefault();
+        return false;
+      }
       if (plain && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
         this.moveCompletion(e.key === "ArrowDown" ? 1 : -1);
         e.preventDefault();

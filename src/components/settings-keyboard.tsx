@@ -6,7 +6,6 @@ import { SearchField } from "@/components/ui/panel";
 import { Tooltip } from "@/components/ui/tooltip";
 import { ACTIONS, bindingsOf, comboFromEvent, conflictOf, isUsableCombo, keycaps, recording } from "@/lib/keymap";
 import { toast } from "@/lib/overlay";
-import { cn } from "@/lib/utils";
 import { useApp } from "@/store/app";
 import { Field } from "./dialogs";
 
@@ -88,19 +87,47 @@ export function KeyboardSection() {
         if (!actions.length) return null;
         return (
           <Field key={g} label={g}>
-            <div className="divide-y divide-ov/[0.06] rounded-lg border border-ov/[0.08]">
+            <div className="divide-y divide-ov/[0.05] overflow-hidden rounded-lg border border-ov/[0.07] bg-ov/[0.015]">
               {actions.map((a) => {
                 const keys = bindingsOf(s, a.id);
                 const custom = !!s.keybindings?.[a.id];
                 const here = rec?.id === a.id ? rec : null;
                 return (
                   <div key={a.id} className="group/k">
-                    <div className="flex min-h-9 items-center gap-2 py-1 pr-1.5 pl-3">
-                      <span className="flex-1 text-[12.5px] text-foreground/90">
-                        {a.label}
-                        {custom && <span className="ml-1.5 text-[10.5px] text-primary">edited</span>}
+                    <div className="flex min-h-9 items-center gap-3 py-1 pr-2.5 pl-3 transition-colors hover:bg-ov/[0.025]">
+                      <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[12.5px] text-foreground/90">
+                        <span className="truncate">{a.label}</span>
+                        {custom && (
+                          <Tooltip content="Changed from the default">
+                            <span className="size-1.5 shrink-0 rounded-full bg-primary" />
+                          </Tooltip>
+                        )}
                       </span>
+                      {/* Row tools only exist while hovering: no space reserved for them. The
+                          chips are right-aligned, so they don't move when the tools appear. */}
                       <div className="flex flex-wrap items-center justify-end gap-1.5">
+                        <span className="hidden items-center gap-0.5 group-hover/k:flex">
+                          {custom && (
+                            <Tooltip content="Reset to default">
+                              <button
+                                type="button"
+                                onClick={() => setKeys(a.id, a.keys)}
+                                className="press flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-ov/10 hover:text-foreground [&_svg]:size-3.5"
+                              >
+                                <RotateCcw />
+                              </button>
+                            </Tooltip>
+                          )}
+                          <Tooltip content="Add another shortcut">
+                            <button
+                              type="button"
+                              onClick={() => setRec({ id: a.id, index: keys.length })}
+                              className="press flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-ov/10 hover:text-foreground [&_svg]:size-3.5"
+                            >
+                              <Plus />
+                            </button>
+                          </Tooltip>
+                        </span>
                         {keys.map((k, i) =>
                           here && here.index === i ? (
                             <RecordingChip key={k} />
@@ -115,28 +142,6 @@ export function KeyboardSection() {
                         )}
                         {here && here.index >= keys.length && <RecordingChip />}
                         {!keys.length && !here && <span className="text-[11.5px] text-muted-foreground/60">Unbound</span>}
-                        <Tooltip content="Add a shortcut">
-                          <button
-                            type="button"
-                            onClick={() => setRec({ id: a.id, index: keys.length })}
-                            className="flex size-6 items-center justify-center rounded-md text-muted-foreground opacity-0 transition hover:bg-ov/10 hover:text-foreground group-hover/k:opacity-100 [&_svg]:size-3.5"
-                          >
-                            <Plus />
-                          </button>
-                        </Tooltip>
-                        <Tooltip content="Reset to default" disabled={!custom}>
-                          <button
-                            type="button"
-                            disabled={!custom}
-                            onClick={() => setKeys(a.id, a.keys)}
-                            className={cn(
-                              "flex size-6 items-center justify-center rounded-md text-muted-foreground transition hover:bg-ov/10 hover:text-foreground [&_svg]:size-3.5",
-                              custom ? "opacity-0 group-hover/k:opacity-100" : "pointer-events-none opacity-0",
-                            )}
-                          >
-                            <RotateCcw />
-                          </button>
-                        </Tooltip>
                       </div>
                     </div>
                     {error?.id === a.id && <div className="px-3 pb-1.5 text-[11.5px] text-destructive">{error.text}</div>}
@@ -156,21 +161,20 @@ export function KeyboardSection() {
 }
 
 function KeyChip({ combo, onEdit, onRemove }: { combo: string; onEdit: () => void; onRemove: () => void }) {
+  const keys = keycaps(combo);
   return (
     <span className="group/c relative inline-flex">
       <Tooltip content="Click to change">
         <button
           type="button"
           onClick={onEdit}
-          className="inline-flex h-6 items-center gap-0.5 rounded-md border border-ov/10 bg-ov/[0.04] px-1 transition hover:border-primary/50 hover:bg-primary/10"
+          className="press inline-flex h-6 items-center gap-1 rounded-md border border-border bg-ov/5 px-2 font-sans text-[11px] text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
         >
-          {keycaps(combo).map((k, i) => (
-            <kbd
-              key={`${k}${i}`}
-              className="inline-flex h-4.5 min-w-4.5 items-center justify-center rounded border border-border bg-ov/5 px-1 font-sans text-[10.5px] text-foreground/80"
-            >
-              {k}
-            </kbd>
+          {keys.map((k, i) => (
+            <span key={`${k}${i}`} className="flex items-center gap-1">
+              {i > 0 && <span className="text-[10px] opacity-40">+</span>}
+              <span className="text-foreground/80 group-hover/c:text-current">{k}</span>
+            </span>
           ))}
         </button>
       </Tooltip>
@@ -188,7 +192,7 @@ function KeyChip({ combo, onEdit, onRemove }: { combo: string; onEdit: () => voi
 
 function RecordingChip() {
   return (
-    <span className="inline-flex h-6 items-center rounded-md border border-primary/60 bg-primary/12 px-2 text-[11.5px] text-primary">
+    <span className="inline-flex h-6 items-center rounded-md border border-primary/50 bg-primary/10 px-2 text-[11px] text-primary">
       <motion.span animate={{ opacity: [1, 0.45, 1] }} transition={{ duration: 1.2, repeat: Number.POSITIVE_INFINITY }}>
         Press keys…
       </motion.span>

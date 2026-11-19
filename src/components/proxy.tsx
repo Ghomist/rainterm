@@ -1,6 +1,6 @@
 // Saved proxies: one editor dialog (used from Settings and the session editor), a picker
 // for sessions, and the Settings → Network section.
-import { Globe, Pencil, Plus, Trash2, Zap } from "lucide-react";
+import { Globe, Monitor, Pencil, Plus, RefreshCw, Trash2, Zap } from "lucide-react";
 import { useEffect, useState } from "react";
 import { create } from "zustand";
 import { Button } from "@/components/ui/button";
@@ -15,7 +15,8 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Tooltip } from "@/components/ui/tooltip";
-import { ipc } from "@/lib/ipc";
+import { ipc, type SystemProxy } from "@/lib/ipc";
+import { SYSTEM_PROXY, systemProxyLabel } from "@/lib/proxy-url";
 import { confirm, toast } from "@/lib/overlay";
 import { type ProxyDef, proxyLabel } from "@/lib/settings";
 import { cn } from "@/lib/utils";
@@ -229,6 +230,16 @@ export function ProxyEditorDialog() {
   );
 }
 
+// ------------------------------------------------------------------ system proxy
+
+/** The OS proxy setting, read on mount (and on demand). */
+export function useSystemProxy(): [SystemProxy | null, () => void] {
+  const [sp, setSp] = useState<SystemProxy | null>(null);
+  const load = () => void ipc.systemProxy().then(setSp, () => setSp({ source: "", http: null, socks: null }));
+  useEffect(load, []);
+  return [sp, load];
+}
+
 // ------------------------------------------------------------------ picker
 
 /**
@@ -246,9 +257,17 @@ export function ProxyPicker({
 }) {
   const proxies = useApp((s) => s.settings.proxies);
   const globalId = useApp((s) => s.settings.globalProxy);
+  const [sys] = useSystemProxy();
   const global = proxies.find((x) => x.id === globalId);
   const current = proxies.find((x) => x.id === value);
-  const v = allowDefault ? (value && (value === "direct" || current) ? value : null) : (current?.id ?? null);
+  const isSystem = value === SYSTEM_PROXY;
+  const v = allowDefault
+    ? value && (value === "direct" || isSystem || current)
+      ? value
+      : null
+    : isSystem
+      ? SYSTEM_PROXY
+      : (current?.id ?? null);
   return (
     <div className="flex gap-1.5">
       <Select<string | null>
@@ -256,9 +275,16 @@ export function ProxyPicker({
         onChange={onChange}
         options={[
           ...(allowDefault
-            ? [{ value: null, label: "Default", hint: global ? proxyLabel(global) : "direct" }]
+            ? [
+                {
+                  value: null,
+                  label: "Default",
+                  hint: globalId === SYSTEM_PROXY ? "system proxy" : global ? proxyLabel(global) : "direct",
+                },
+              ]
             : []),
           { value: allowDefault ? "direct" : null, label: "None — connect directly" },
+          { value: SYSTEM_PROXY, label: "System proxy", hint: systemProxyLabel(sys) },
           ...proxies.map((x) => ({
             value: x.id,
             label: proxyLabel(x),
@@ -307,9 +333,10 @@ export function NetworkSection() {
             <Plus className="size-3.5" /> Add proxy
           </Button>
         </div>
+        <SystemProxyRow isDefault={globalProxy === SYSTEM_PROXY} />
         {proxies.length === 0 ? (
           <div className="rounded-lg border border-dashed border-ov/10 p-4 text-center text-[12px] text-muted-foreground">
-            No proxies yet. Add a SOCKS5 or HTTP proxy to reuse it in your sessions.
+            Add a SOCKS5 or HTTP proxy to reuse it in your sessions.
           </div>
         ) : (
           <div className="grid gap-1">
@@ -347,5 +374,32 @@ export function NetworkSection() {
         )}
       </div>
     </>
+  );
+}
+
+/** The built-in entry: always there, read-only, shows what the OS is set to. */
+function SystemProxyRow({ isDefault }: { isDefault: boolean }) {
+  const [sp, reload] = useSystemProxy();
+  return (
+    <div className="flex items-center gap-2.5 rounded-lg border border-ov/[0.06] bg-ov/[0.02] px-2.5 py-2">
+      <Monitor className="size-4 shrink-0 text-muted-foreground" />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5 truncate text-[12.5px]">
+          System proxy
+          <span className="rounded bg-ov/[0.08] px-1 text-[10px] text-muted-foreground">built-in</span>
+          {isDefault && <span className="rounded bg-primary/15 px-1 text-[10px] font-medium text-primary">default</span>}
+        </div>
+        <div className="truncate text-[11px] text-muted-foreground">
+          {systemProxyLabel(sp)}
+          {sp?.source ? ` · from ${sp.source}` : ""}
+          {sp?.socks && sp.http ? " · SSH uses the SOCKS one" : ""}
+        </div>
+      </div>
+      <Tooltip content="Read the system setting again">
+        <Button variant="ghost" size="icon-sm" onClick={reload}>
+          <RefreshCw className="size-3.5" />
+        </Button>
+      </Tooltip>
+    </div>
   );
 }
