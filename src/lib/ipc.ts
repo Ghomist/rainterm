@@ -81,7 +81,19 @@ export interface MonitorSnapshot {
   netRx: number;
   netTx: number;
   procs: MonitorProc[];
-  gpus: { name: string; util: number | null; memUsed: number | null; memTotal: number | null; temp: number | null }[];
+  gpus: MonitorGpu[];
+}
+
+/** A GPU, or a Huawei Ascend NPU (kind "npu": util = AI Core usage). */
+export interface MonitorGpu {
+  kind: "gpu" | "npu";
+  name: string;
+  util: number | null;
+  memUsed: number | null;
+  memTotal: number | null;
+  temp: number | null;
+  power: number | null;
+  health: string | null;
 }
 
 export interface SshConfigHost {
@@ -157,6 +169,9 @@ export type LlmEvent =
   | { type: "block"; block: LlmBlock }
   | { type: "done"; stopReason: string; inputTokens: number; outputTokens: number }
   | { type: "error"; message: string };
+
+/** Output of an agent process (see src-tauri/src/proc.rs). */
+export type ProcEvent = { t: "out"; line: string } | { t: "err"; text: string } | { t: "exit"; code: number | null };
 
 export interface SystemProxy {
   http?: string | null;
@@ -313,6 +328,23 @@ export const ipc = {
   secretHas: (key: string) => invoke<boolean>("secret_has", { key }),
   sshPing: (sessionId: string) => invoke<number>("ssh_ping", { sessionId }),
   systemProxy: () => invoke<SystemProxy>("system_proxy"),
+  procSpawn: (argv: string[], cwd: string | null, env: Record<string, string> | null, onEvent: Channel<ProcEvent>) =>
+    invoke<number>("proc_spawn", { argv, cwd, env, onEvent }),
+  procSpawnRemote: (sessionId: string, command: string, onEvent: Channel<ProcEvent>) =>
+    invoke<number>("proc_spawn_remote", { sessionId, command, onEvent }),
+  procWrite: (id: number, data: string) => invoke<void>("proc_write", { id, data }),
+  procCloseStdin: (id: number) => invoke<void>("proc_close_stdin", { id }),
+  procKill: (id: number) => invoke<void>("proc_kill", { id }),
+  procRun: (argv: string[], opts: { cwd?: string; env?: Record<string, string>; input?: string; timeoutMs?: number } = {}) =>
+    invoke<RunOutput>("proc_run", { argv, cwd: opts.cwd ?? null, env: opts.env ?? null, input: opts.input ?? null, timeoutMs: opts.timeoutMs ?? null }),
+  procRunRemote: (sessionId: string, command: string, timeoutMs?: number) =>
+    invoke<RunOutput>("proc_run_remote", { sessionId, command, timeoutMs: timeoutMs ?? null }),
+  agentsHome: () => invoke<string>("agents_home"),
+  agentsLogAppend: (run: string, text: string) => invoke<void>("agents_log_append", { run, text }),
+  agentsLogRead: (run: string) => invoke<string>("agents_log_read", { run }),
+  pathStat: (path: string) => invoke<{ exists: boolean; dir: boolean }>("path_stat", { path }),
+  fileReadText: (path: string, max?: number) => invoke<string>("file_read_text", { path, max: max ?? null }),
+  fileWriteText: (path: string, text: string) => invoke<void>("file_write_text", { path, text }),
   textFileRead: (path: string) => invoke<string>("text_file_read", { path }),
   textFileWrite: (path: string, text: string) => invoke<void>("text_file_write", { path, text }),
   sshKeysList: () => invoke<KeyInfo[]>("ssh_keys_list"),
@@ -349,8 +381,8 @@ export const ipc = {
   fsEdit: (sessionId: string, remote: string, events: Channel<EditEvent>) =>
     invoke<string>("fs_edit", { sessionId, remote, events }),
 
-  storeLoad: <T>(name: "profiles" | "settings" | "session" | "history" | "snippets") => invoke<T | null>("store_load", { name }),
-  storeSave: (name: "profiles" | "settings" | "session" | "history" | "snippets", value: unknown) =>
+  storeLoad: <T>(name: "profiles" | "settings" | "session" | "history" | "snippets" | "agents") => invoke<T | null>("store_load", { name }),
+  storeSave: (name: "profiles" | "settings" | "session" | "history" | "snippets" | "agents", value: unknown) =>
     invoke<void>("store_save", { name, value }),
   secretGet: (key: string) => invoke<string | null>("secret_get", { key }),
   secretSet: (key: string, value: string) => invoke<void>("secret_set", { key, value }),

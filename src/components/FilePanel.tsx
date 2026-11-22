@@ -62,7 +62,8 @@ import { confirm, toast } from "@/lib/overlay";
 import { cancelJob, clearFinished, download, fmtEta, fmtSize, upload, useTransfers } from "@/lib/transfers";
 import { POSIX_INTEGRATION } from "@/lib/shell-integration";
 import { cn } from "@/lib/utils";
-import { type Pane, useActivePane, useApp } from "@/store/app";
+import { isTermPane, type TermPane, useActivePane, useApp } from "@/store/app";
+import { tr } from "@/lib/i18n";
 
 // ------------------------------------------------------------------ files view
 
@@ -77,13 +78,13 @@ export function FilesView() {
   }, [pane?.kind, pane?.status, sessionId]);
 
   let body: React.ReactNode;
-  if (!pane) body = <Empty icon={<FolderOpen />} text="No active session" />;
-  else if (pane.kind === "serial") body = <Empty icon={<FolderOpen />} text="Serial sessions have no file system" />;
+  if (!pane) body = <Empty icon={<FolderOpen />} text={tr("No active session")} />;
+  else if (pane.kind === "serial") body = <Empty icon={<FolderOpen />} text={tr("Serial sessions have no file system")} />;
   else if (!target)
     body = (
       <Empty
         icon={<RefreshCw className="animate-spin" />}
-        text={pane.status === "connecting" ? "Connecting…" : "Connect the SSH session to browse files"}
+        text={pane.status === "connecting" ? tr("Connecting…") : tr("Connect the SSH session to browse files")}
       />
     );
   else body = <Browser key={`${pane.id}:${sessionId}`} pane={pane} target={target} />;
@@ -110,7 +111,7 @@ function Empty({ icon, text }: { icon: React.ReactNode; text: string }) {
 type SortKey = "name" | "size" | "mtime";
 const lastDir = new Map<string, string>();
 
-function Browser({ pane, target }: { pane: Pane; target: FsTarget }) {
+function Browser({ pane, target }: { pane: TermPane; target: FsTarget }) {
   const remote = target.kind === "ssh";
   const showHidden = useApp((s) => s.settings.showHiddenFiles);
   const downloadDir = useApp((s) => s.settings.downloadDir);
@@ -231,15 +232,15 @@ function Browser({ pane, target }: { pane: Pane; target: FsTarget }) {
     // Remote: edit in place — saves are uploaded back automatically.
     const ch = new Channel<EditEvent>();
     ch.onmessage = (ev) => {
-      if (ev.type === "synced") toast({ kind: "success", title: `Saved ${e.name} to server`, description: fmtSize(ev.bytes) });
-      if (ev.type === "error") toast({ kind: "error", title: `Couldn't upload ${e.name}`, description: ev.message });
+      if (ev.type === "synced") toast({ kind: "success", title: tr("Saved {0} to server", { 0: e.name }), description: fmtSize(ev.bytes) });
+      if (ev.type === "error") toast({ kind: "error", title: tr("Couldn't upload {0}", { 0: e.name }), description: ev.message });
     };
     try {
       const local = await ipc.fsEdit(target.sessionId, pathOf(e.name), ch);
       await openPath(local);
-      toast({ kind: "info", title: `Editing ${e.name}`, description: "Changes are uploaded every time you save." });
+      toast({ kind: "info", title: tr("Editing {0}", { 0: e.name }), description: tr("Changes are uploaded every time you save.") });
     } catch (err) {
-      toast({ kind: "error", title: `Couldn't open ${e.name}`, description: String(err) });
+      toast({ kind: "error", title: tr("Couldn't open {0}", { 0: e.name }), description: String(err) });
     }
   };
 
@@ -247,7 +248,7 @@ function Browser({ pane, target }: { pane: Pane; target: FsTarget }) {
     if (target.kind !== "ssh" || !items.length) return;
     let dir = downloadDir ?? (await ipc.fsDefaultDownloadDir());
     if (ask) {
-      const picked = await openDialog({ directory: true, title: "Download to", defaultPath: dir });
+      const picked = await openDialog({ directory: true, title: tr("Download to"), defaultPath: dir });
       if (!picked || Array.isArray(picked)) return;
       dir = picked;
     }
@@ -261,7 +262,7 @@ function Browser({ pane, target }: { pane: Pane; target: FsTarget }) {
   };
 
   const pickUpload = async (directory: boolean) => {
-    const picked = await openDialog({ multiple: true, directory, title: directory ? "Upload folder" : "Upload files" });
+    const picked = await openDialog({ multiple: true, directory, title: directory ? tr("Upload folder") : tr("Upload files") });
     if (picked) void uploadPaths(Array.isArray(picked) ? picked : [picked]);
   };
 
@@ -270,19 +271,19 @@ function Browser({ pane, target }: { pane: Pane; target: FsTarget }) {
     const what = items.length === 1 ? `"${items[0].name}"` : `${items.length} items`;
     const hasDir = items.some((e) => e.kind === "dir");
     const ok = await confirm({
-      title: `Delete ${what}?`,
+      title: tr("Delete {0}?", { 0: what }),
       message: remote
-        ? `This permanently deletes ${what} on the server${hasDir ? ", including everything inside" : ""}. This cannot be undone.`
-        : `${what} will be moved to the Recycle Bin.`,
-      confirmLabel: "Delete",
+        ? tr("This permanently deletes {0} on the server{1}. This cannot be undone.", { 0: what, 1: hasDir ? ", including everything inside" : "" })
+        : tr("{0} will be moved to the Recycle Bin.", { 0: what }),
+      confirmLabel: tr("Delete"),
       danger: true,
     });
     if (!ok) return;
     try {
       await ipc.fsRemove(target, items.map((e) => pathOf(e.name)));
-      toast({ kind: "success", title: `Deleted ${what}` });
+      toast({ kind: "success", title: tr("Deleted {0}", { 0: what }) });
     } catch (e) {
-      toast({ kind: "error", title: "Delete failed", description: String(e) });
+      toast({ kind: "error", title: tr("Delete failed"), description: String(e) });
     }
     refresh();
   };
@@ -296,7 +297,7 @@ function Browser({ pane, target }: { pane: Pane; target: FsTarget }) {
       setSelected(new Set([to]));
       setCursor(to);
     } catch (e) {
-      toast({ kind: "error", title: "Rename failed", description: String(e) });
+      toast({ kind: "error", title: tr("Rename failed"), description: String(e) });
     }
   };
 
@@ -309,7 +310,7 @@ function Browser({ pane, target }: { pane: Pane; target: FsTarget }) {
       setSelected(new Set([name]));
       setCursor(name);
     } catch (e) {
-      toast({ kind: "error", title: "Couldn't create folder", description: String(e) });
+      toast({ kind: "error", title: tr("Couldn't create folder"), description: String(e) });
     }
   };
 
@@ -434,10 +435,10 @@ function Browser({ pane, target }: { pane: Pane; target: FsTarget }) {
     >
       {/* header: source + toolbar */}
       <PanelHeader
-        title={remote ? `SFTP · ${pane.subtitle}` : "Local files"}
+        title={remote ? tr("SFTP · {0}", { 0: pane.subtitle }) : tr("Local files")}
         icon={<span className={cn("size-1.5 rounded-full", remote ? "bg-success" : "bg-primary")} />}
       >
-        <ToolBtn tip="Back" disabled={!back.length} onClick={() => {
+        <ToolBtn tip={tr("Back")} disabled={!back.length} onClick={() => {
           const prev = back.at(-1);
           if (!prev || !listing) return;
           setBack(back.slice(0, -1));
@@ -446,7 +447,7 @@ function Browser({ pane, target }: { pane: Pane; target: FsTarget }) {
         }}>
           <ArrowLeft />
         </ToolBtn>
-        <ToolBtn tip="Forward" disabled={!fwd.length} onClick={() => {
+        <ToolBtn tip={tr("Forward")} disabled={!fwd.length} onClick={() => {
           const next = fwd[0];
           if (!next || !listing) return;
           setFwd(fwd.slice(1));
@@ -455,52 +456,52 @@ function Browser({ pane, target }: { pane: Pane; target: FsTarget }) {
         }}>
           <ArrowRight />
         </ToolBtn>
-        <ToolBtn tip="Up one level" shortcut="Backspace" disabled={!listing?.parent} onClick={() => listing?.parent && go(listing.parent)}>
+        <ToolBtn tip={tr("Up one level")} shortcut="Backspace" disabled={!listing?.parent} onClick={() => listing?.parent && go(listing.parent)}>
           <ArrowUp />
         </ToolBtn>
-        <ToolBtn tip="Refresh" onClick={refresh}>
+        <ToolBtn tip={tr("Refresh")} onClick={refresh}>
           <RefreshCw className={cn(loading && "animate-spin")} />
         </ToolBtn>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <IconButton tip="More">
+            <IconButton tip={tr("More")}>
               <MoreHorizontal />
             </IconButton>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem onSelect={() => setCreating(true)}>
-              <FolderPlus /> New folder
+              <FolderPlus /> {tr("New folder")}
             </DropdownMenuItem>
             {remote && (
               <>
                 <DropdownMenuItem onSelect={() => void pickUpload(false)}>
-                  <Upload /> Upload files…
+                  <Upload /> {tr("Upload files…")}
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => void pickUpload(true)}>
-                  <FolderUp /> Upload folder…
+                  <FolderUp /> {tr("Upload folder…")}
                 </DropdownMenuItem>
               </>
             )}
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={() => void ipc.fsHome(target).then(go)}>
-              <Home /> Home folder
+              <Home /> {tr("Home folder")}
             </DropdownMenuItem>
             {listing && (
               <DropdownMenuItem onSelect={() => cdHere(listing.path)}>
-                <SquareTerminal /> cd here in terminal
+                <SquareTerminal /> {tr("cd here in terminal")}
               </DropdownMenuItem>
             )}
             {!remote && listing && (
               <DropdownMenuItem onSelect={() => void openPath(listing.path)}>
-                <FolderOpen /> Open in system file manager
+                <FolderOpen /> {tr("Open in system file manager")}
               </DropdownMenuItem>
             )}
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={() => void updateSettings({ showHiddenFiles: !showHidden })}>
-              {showHidden ? <EyeOff /> : <Eye />} {showHidden ? "Hide" : "Show"} hidden files
+              {showHidden ? <EyeOff /> : <Eye />} {showHidden ? tr("Hide hidden files") : tr("Show hidden files")}
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setFollow(!follow)}>
-              <LocateFixed /> {follow ? "Stop following" : "Follow"} terminal directory
+              <LocateFixed /> {follow ? tr("Stop following the terminal directory") : tr("Follow the terminal directory")}
             </DropdownMenuItem>
             {!pane.cwd && (
               <DropdownMenuItem
@@ -512,7 +513,7 @@ function Browser({ pane, target }: { pane: Pane; target: FsTarget }) {
                   pane.session.focus();
                 }}
               >
-                <LocateFixed /> Enable shell integration (bash / zsh)
+                <LocateFixed /> {tr("Enable shell integration (bash / zsh)")}
               </DropdownMenuItem>
             )}
           </DropdownMenuContent>
@@ -546,7 +547,7 @@ function Browser({ pane, target }: { pane: Pane; target: FsTarget }) {
         <SearchField
           value={filter}
           onChange={setFilter}
-          placeholder="Filter"
+          placeholder={tr("Filter")}
           onKeyDown={(e) => {
             if (e.key === "Escape") {
               setFilter("");
@@ -564,9 +565,9 @@ function Browser({ pane, target }: { pane: Pane; target: FsTarget }) {
 
       {/* column header */}
       <div className="grid h-6 grid-cols-[1fr_64px_78px] items-center gap-2 border-b border-ov/[0.06] px-4 text-[10.5px] font-medium text-muted-foreground select-none">
-        <SortHead label="Name" k="name" sort={sort} setSort={setSort} />
-        <SortHead label="Size" k="size" sort={sort} setSort={setSort} right />
-        <SortHead label="Modified" k="mtime" sort={sort} setSort={setSort} right />
+        <SortHead label={tr("Name")} k="name" sort={sort} setSort={setSort} />
+        <SortHead label={tr("Size")} k="size" sort={sort} setSort={setSort} right />
+        <SortHead label={tr("Modified")} k="mtime" sort={sort} setSort={setSort} right />
       </div>
 
       <AnimatePresence>
@@ -621,7 +622,7 @@ function Browser({ pane, target }: { pane: Pane; target: FsTarget }) {
             >
             {creating && (
               <RowShell icon={<Folder className="size-4 shrink-0 fill-primary/25 text-primary" />} active>
-                <InlineInput initial="New folder" onDone={(v) => void commitCreate(v)} />
+                <InlineInput initial={tr("New folder")} onDone={(v) => void commitCreate(v)} />
               </RowShell>
             )}
             {(ready ? entries : []).map((e) => (
@@ -640,7 +641,7 @@ function Browser({ pane, target }: { pane: Pane; target: FsTarget }) {
             ))}
             {ready && listing && entries.length === 0 && !creating && (
               <div className="py-10 text-center text-[12px] text-muted-foreground">
-                {filter ? `Nothing matches “${filter}”` : "This folder is empty"}
+                {filter ? tr("Nothing matches “{0}”", { 0: filter }) : tr("This folder is empty")}
               </div>
             )}
             </motion.div>
@@ -662,34 +663,34 @@ function Browser({ pane, target }: { pane: Pane; target: FsTarget }) {
         ) : (
         <ContextMenuContent>
           <ContextMenuItem onSelect={() => setCreating(true)}>
-            <FolderPlus /> New folder
+            <FolderPlus /> {tr("New folder")}
           </ContextMenuItem>
           {remote && (
             <>
               <ContextMenuItem onSelect={() => void pickUpload(false)}>
-                <Upload /> Upload files…
+                <Upload /> {tr("Upload files…")}
               </ContextMenuItem>
               <ContextMenuItem onSelect={() => void pickUpload(true)}>
-                <FolderUp /> Upload folder…
+                <FolderUp /> {tr("Upload folder…")}
               </ContextMenuItem>
             </>
           )}
           <ContextMenuSeparator />
           <ContextMenuItem onSelect={refresh}>
-            <RefreshCw /> Refresh
+            <RefreshCw /> {tr("Refresh")}
           </ContextMenuItem>
           {listing && (
             <>
               <ContextMenuItem onSelect={() => cdHere(listing.path)}>
-                <SquareTerminal /> cd here in terminal
+                <SquareTerminal /> {tr("cd here in terminal")}
               </ContextMenuItem>
               <ContextMenuItem onSelect={() => void navigator.clipboard.writeText(listing.path)}>
-                <ClipboardCopy /> Copy folder path
+                <ClipboardCopy /> {tr("Copy folder path")}
               </ContextMenuItem>
             </>
           )}
           <ContextMenuItem onSelect={() => void updateSettings({ showHiddenFiles: !showHidden })}>
-            {showHidden ? <EyeOff /> : <Eye />} {showHidden ? "Hide" : "Show"} hidden files
+            {showHidden ? <EyeOff /> : <Eye />} {showHidden ? tr("Hide hidden files") : tr("Show hidden files")}
           </ContextMenuItem>
         </ContextMenuContent>
         )}
@@ -700,19 +701,19 @@ function Browser({ pane, target }: { pane: Pane; target: FsTarget }) {
       <div className="flex h-8 shrink-0 items-center gap-1 border-t border-ov/[0.06] pr-1.5 pl-4 text-[11px] text-muted-foreground">
         <span className="truncate">
           {selEntries.length
-            ? `${selEntries.length} selected${totalSel ? ` · ${fmtSize(totalSel)}` : ""}`
-            : `${entries.length} items`}
+            ? tr("{0} selected{1}", { 0: selEntries.length, 1: totalSel ? ` · ${fmtSize(totalSel)}` : "" })
+            : tr("{0} items", { 0: entries.length })}
         </span>
         <div className="flex-1" />
         {remote && selEntries.length > 0 && (
-          <Tooltip content="Download selected">
+          <Tooltip content={tr("Download selected")}>
             <button type="button" onClick={() => void downloadSel(selEntries)} className={toolCls}>
               <Download />
             </button>
           </Tooltip>
         )}
         {remote && (
-          <Tooltip content="Upload files">
+          <Tooltip content={tr("Upload files")}>
             <button type="button" onClick={() => void pickUpload(false)} className={toolCls}>
               <Upload />
             </button>
@@ -729,8 +730,7 @@ function Browser({ pane, target }: { pane: Pane; target: FsTarget }) {
             className="pointer-events-none absolute inset-2 z-30 flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-primary/60 bg-[color-mix(in_oklab,var(--primary)_12%,var(--surface))] text-[12.5px] text-primary"
           >
             <Upload className="size-6" />
-            Drop to upload to
-            <span className="max-w-[90%] truncate font-mono text-[11px]">{listing?.path}</span>
+            {tr("Drop to upload to")}<span className="max-w-[90%] truncate font-mono text-[11px]">{listing?.path}</span>
           </motion.div>
         )}
       </AnimatePresence>
@@ -860,10 +860,10 @@ function Breadcrumb({ path, sep, onGo, locate }: { path: string; sep: string; on
 
 function LocateButton({ following, known, here, onClick }: Locate) {
   const tip = !known
-    ? "Terminal directory unknown — click to enable shell integration (bash/zsh)"
+    ? tr("Terminal directory unknown — click to enable shell integration (bash/zsh)")
     : following && here
-      ? "Following the terminal's directory · click to stop"
-      : "Go to the terminal's directory and follow it";
+      ? tr("Following the terminal's directory · click to stop")
+      : tr("Go to the terminal's directory and follow it");
   return (
     <Tooltip content={tip}>
       <button
@@ -1064,7 +1064,7 @@ function EntryMenu({
   const s = items.length > 1 ? "s" : "";
   const copy = (text: string, what: string) => {
     void navigator.clipboard.writeText(text);
-    toast({ kind: "success", title: `Copied ${what}`, duration: 1600 });
+    toast({ kind: "success", title: what, duration: 1600 });
   };
   const key = (k: string) => <span className="ml-auto pl-4 text-[10.5px] text-muted-foreground">{k}</span>;
 
@@ -1074,60 +1074,64 @@ function EntryMenu({
       ? [
           <ContextMenuItem key="open" onSelect={() => onOpen(one)}>
             {one.kind === "dir" ? <FolderOpen /> : remote ? <Pencil /> : <File />}
-            {one.kind === "dir" ? "Open" : remote ? "Open & edit (auto-upload)" : "Open"}
+            {one.kind === "dir" ? tr("Open") : remote ? tr("Open & edit (auto-upload)") : tr("Open")}
             {key("Enter")}
           </ContextMenuItem>,
         ]
       : !remote && files.length > 0 && files.length <= 20
         ? [
             <ContextMenuItem key="open" onSelect={() => files.forEach((f) => onOpen(f))}>
-              <File /> Open {files.length} file{files.length > 1 ? "s" : ""}
+              <File /> {tr(files.length > 1 ? "Open {0} files" : "Open {0} file", { 0: files.length })}
             </ContextMenuItem>,
           ]
         : [],
     remote
       ? [
           <ContextMenuItem key="dl" onSelect={() => onDownload(items)}>
-            <Download /> Download{items.length > 1 ? ` ${items.length} items` : ""}
+            <Download /> {items.length > 1 ? tr("Download {0} items", { 0: items.length }) : tr("Download")}
           </ContextMenuItem>,
           <ContextMenuItem key="dlto" onSelect={() => onDownload(items, true)}>
-            <FolderDown /> Download to…
-          </ContextMenuItem>,
+            <FolderDown /> {tr("Download to…")}</ContextMenuItem>,
         ]
       : [
           <ContextMenuItem key="reveal" onSelect={() => void revealItemInDir(one ? paths[0] : paths)}>
-            <FolderOpen /> Show in file manager
-          </ContextMenuItem>,
+            <FolderOpen /> {tr("Show in file manager")}</ContextMenuItem>,
         ],
     [
       ...(one?.kind === "dir"
         ? [
             <ContextMenuItem key="cd" onSelect={() => onCd(pathOf(one.name))}>
-              <SquareTerminal /> cd here in terminal
-            </ContextMenuItem>,
+              <SquareTerminal /> {tr("cd here in terminal")}</ContextMenuItem>,
           ]
         : []),
       <ContextMenuItem key="term" onSelect={() => onTerminal(paths)}>
-        <SquareTerminal /> Insert path{s} into terminal
+        <SquareTerminal /> {s ? tr("Insert paths into terminal") : tr("Insert path into terminal")}</ContextMenuItem>,
+      <ContextMenuItem
+        key="cp"
+        onSelect={() => copy(paths.join("\n"), one ? tr("Copied the path") : tr("Copied {0} paths", { 0: items.length }))}
+      >
+        <ClipboardCopy /> {s ? tr("Copy paths") : tr("Copy path")}
       </ContextMenuItem>,
-      <ContextMenuItem key="cp" onSelect={() => copy(paths.join("\n"), one ? "path" : `${items.length} paths`)}>
-        <ClipboardCopy /> Copy path{s}
-      </ContextMenuItem>,
-      <ContextMenuItem key="cn" onSelect={() => copy(items.map((e) => e.name).join("\n"), one ? "name" : `${items.length} names`)}>
-        <ClipboardCopy /> Copy name{s}
+      <ContextMenuItem
+        key="cn"
+        onSelect={() =>
+          copy(items.map((e) => e.name).join("\n"), one ? tr("Copied the name") : tr("Copied {0} names", { 0: items.length }))
+        }
+      >
+        <ClipboardCopy /> {s ? tr("Copy names") : tr("Copy name")}
       </ContextMenuItem>,
     ],
     [
       ...(one
         ? [
             <ContextMenuItem key="ren" onSelect={() => onRename(one.name)}>
-              <Pencil /> Rename {key("F2")}
+              <Pencil /> {tr("Rename")}{" "}{key("F2")}
             </ContextMenuItem>,
           ]
         : []),
       <ContextMenuItem key="del" destructive onSelect={() => onDelete(items)}>
-        <Trash2 /> Delete{items.length > 1 ? ` ${items.length} items` : ""}
-        <span className="ml-auto pl-4 text-[10.5px] opacity-70">Del</span>
+        <Trash2 /> {items.length > 1 ? tr("Delete {0} items", { 0: items.length }) : tr("Delete")}
+        <span className="ml-auto pl-4 text-[10.5px] opacity-70">{tr("Del")}</span>
       </ContextMenuItem>,
     ],
   ].filter((g) => g.length > 0);
@@ -1136,7 +1140,7 @@ function EntryMenu({
     <ContextMenuContent className="min-w-52">
       {!one && (
         <div className="flex items-center gap-1.5 px-2 pt-1 pb-1.5 text-[11px] text-muted-foreground">
-          <span className="font-medium text-foreground/85">{items.length} selected</span>
+          <span className="font-medium text-foreground/85">{tr("{0} selected", { 0: items.length })}</span>
           <span className="truncate">
             {[files.length && `${files.length} file${files.length > 1 ? "s" : ""}`, dirs && `${dirs} folder${dirs > 1 ? "s" : ""}`]
               .filter(Boolean)
@@ -1170,12 +1174,12 @@ function TransferList() {
           <motion.span animate={{ rotate: open ? 90 : 0 }}>
             <ChevronRight className="size-3" />
           </motion.span>
-          Transfers {running ? `· ${running} active` : ""}
+          {tr("Transfers")}{" "}{running ? tr("· {0} active", { 0: running }) : ""}
         </button>
         <div className="flex-1" />
         {jobs.length > running && (
           <button type="button" onClick={clearFinished} className="hover:text-foreground">
-            Clear
+            {tr("Clear")}
           </button>
         )}
       </div>
@@ -1204,10 +1208,10 @@ function TransferList() {
                       {j.status === "running"
                         ? `${Math.floor(pct * 100)}%`
                         : j.status === "done"
-                          ? "Done"
+                          ? tr("Done")
                           : j.status === "cancelled"
-                            ? "Cancelled"
-                            : "Failed"}
+                            ? tr("Cancelled")
+                            : tr("Failed")}
                     </span>
                     {j.status === "running" && (
                       <button type="button" onClick={() => cancelJob(j.id)} className="rounded p-0.5 text-muted-foreground hover:bg-ov/10 hover:text-foreground">
@@ -1279,7 +1283,7 @@ function startPathDrag(ev: React.PointerEvent, getPaths: () => string[], remote:
     ghost.remove();
     const id = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>("[data-pane-id]")?.dataset.paneId;
     const pane = id ? useApp.getState().panes[id] : null;
-    if (pane) {
+    if (isTermPane(pane)) {
       pane.session.input(paths.map((p) => quote(p, remote)).join(" "));
       useApp.getState().focusPane(pane.id);
       pane.session.focus();

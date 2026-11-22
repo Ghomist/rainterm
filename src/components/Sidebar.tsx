@@ -15,6 +15,7 @@ import {
   Plus,
   Server,
   SquareTerminal,
+  Bot,
   Trash2,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
@@ -43,17 +44,18 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { confirm, prompt, toast } from "@/lib/overlay";
 import { cn } from "@/lib/utils";
 import { allGroups, type Profile, useApp } from "@/store/app";
+import { tr } from "@/lib/i18n";
 
 const QUICK = /^(?:ssh\s+)?(?:[^@\s]+@)?[^:\s@]+(?::\d+)?$/;
 
 export async function importSshConfig() {
   try {
     const { added, total } = await useApp.getState().importSshConfig();
-    if (!total) toast({ kind: "info", title: "No hosts found in ~/.ssh/config" });
-    else if (!added) toast({ kind: "info", title: "Everything in ~/.ssh/config is already imported" });
-    else toast({ kind: "success", title: `Imported ${added} host${added > 1 ? "s" : ""} from ~/.ssh/config` });
+    if (!total) toast({ kind: "info", title: tr("No hosts found in ~/.ssh/config") });
+    else if (!added) toast({ kind: "info", title: tr("Everything in ~/.ssh/config is already imported") });
+    else toast({ kind: "success", title: tr(added > 1 ? "Imported {0} hosts from ~/.ssh/config" : "Imported {0} host from ~/.ssh/config", { 0: added }) });
   } catch (e) {
-    toast({ kind: "error", title: "Couldn't read ~/.ssh/config", description: String(e) });
+    toast({ kind: "error", title: tr("Couldn't read ~/.ssh/config"), description: String(e) });
   }
 }
 
@@ -63,10 +65,10 @@ async function newGroup() {
   const s = useApp.getState();
   const existing = allGroups(s.settings.profileGroups, s.profiles);
   const name = await prompt({
-    title: "New group",
-    placeholder: "e.g. Production",
-    confirmLabel: "Create",
-    validate: (v) => (!v.trim() ? "Enter a name" : existing.includes(v.trim()) ? "That group already exists" : null),
+    title: tr("New group"),
+    placeholder: tr("e.g. Production"),
+    confirmLabel: tr("Create"),
+    validate: (v) => (!v.trim() ? tr("Enter a name") : existing.includes(v.trim()) ? tr("That group already exists") : null),
   });
   if (name) await s.createGroup(name);
   return name?.trim() ?? null;
@@ -150,27 +152,23 @@ export function SessionsView() {
 
   return (
     <>
-      <PanelHeader title="Sessions">
+      <PanelHeader title={tr("Sessions")}>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <IconButton tip="New session">
+            <IconButton tip={tr("New session")}>
               <Plus />
             </IconButton>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem onSelect={() => set({ profileEditor: { kind: "ssh" } })}>
-              <Server /> New SSH session…
-            </DropdownMenuItem>
+              <Server /> {tr("New SSH session…")}</DropdownMenuItem>
             <DropdownMenuItem onSelect={() => set({ profileEditor: { kind: "serial" } })}>
-              <Cable /> New serial session…
-            </DropdownMenuItem>
+              <Cable /> {tr("New serial session…")}</DropdownMenuItem>
             <DropdownMenuItem onSelect={() => void newGroup()}>
-              <FolderPlus /> New group…
-            </DropdownMenuItem>
+              <FolderPlus /> {tr("New group…")}</DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={() => void importSshConfig()}>
-              <FileInput /> Import from ~/.ssh/config
-            </DropdownMenuItem>
+              <FileInput /> {tr("Import from ~/.ssh/config")}</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </PanelHeader>
@@ -179,7 +177,7 @@ export function SessionsView() {
         <SearchField
           value={query}
           onChange={setQuery}
-          placeholder="Search or user@host"
+          placeholder={tr("Search or user@host")}
           onKeyDown={(e) => {
             if (e.key === "Enter" && canQuick) {
               quickConnect(query);
@@ -207,7 +205,7 @@ export function SessionsView() {
               className={cn(rowCls, "mb-2 bg-primary/12 text-primary hover:bg-primary/18")}
             >
               <Plug className="size-3.5 shrink-0" />
-              <span className="truncate">Connect to {query.trim()}</span>
+              <span className="truncate">{tr("Connect to")}{" "}{query.trim()}</span>
               <span className="ml-auto text-[11px] opacity-70">↵</span>
             </button>
           </motion.div>
@@ -215,7 +213,10 @@ export function SessionsView() {
       </AnimatePresence>
 
       <ScrollArea className="min-h-0 flex-1" viewportClassName="px-2 pb-3">
-        <Group label="Local" defaultOpen>
+        <Group label={tr("Local")} defaultOpen>
+          {(!q || "agents".includes(q) || tr("Agents").toLowerCase().includes(q)) && (
+            <Row icon={<Bot />} label={tr("Agents")} detail={tr("multi-agent board")} onOpen={() => useApp.getState().openAgents()} />
+          )}
           {localShells.map((sh) => (
             <Row key={sh.id} icon={<SquareTerminal />} label={sh.name} onOpen={() => openLocal(sh)} />
           ))}
@@ -223,18 +224,15 @@ export function SessionsView() {
 
         {empty && !q && (
           <div className="mt-2 rounded-lg border border-dashed border-ov/10 p-3 text-center text-[12px] leading-relaxed text-muted-foreground">
-            No saved sessions yet.
-            <div className="mt-1.5 flex flex-col gap-0.5">
+            {tr("No saved sessions yet.")}<div className="mt-1.5 flex flex-col gap-0.5">
               <button
                 type="button"
                 onClick={() => set({ profileEditor: { kind: "ssh" } })}
                 className="text-primary hover:underline"
               >
-                Create an SSH session
-              </button>
+                {tr("Create an SSH session")}</button>
               <button type="button" onClick={() => void importSshConfig()} className="text-primary hover:underline">
-                Import from ~/.ssh/config
-              </button>
+                {tr("Import from ~/.ssh/config")}</button>
             </div>
           </div>
         )}
@@ -242,7 +240,7 @@ export function SessionsView() {
         {(sections.ungrouped.length > 0 || (drag && sections.hasGroups)) && (
           <ProfileGroup
             group=""
-            label={sections.hasGroups ? "Ungrouped" : "Saved"}
+            label={sections.hasGroups ? tr("Ungrouped") : tr("Saved")}
             items={sections.ungrouped}
             open={!collapsed.includes("") || !!q}
             onToggle={() => toggle("")}
@@ -274,7 +272,7 @@ export function SessionsView() {
             {drag.label}
             {drag.over !== null && (
               <span className="text-muted-foreground">
-                → <span className="text-primary">{drag.over || "Ungrouped"}</span>
+                → <span className="text-primary">{drag.over || tr("Ungrouped")}</span>
               </span>
             )}
           </div>,
@@ -389,21 +387,21 @@ function ProfileGroup({
   const rename = async () => {
     const existing = allGroups(groupOrder ?? [], profiles);
     const name = await prompt({
-      title: "Rename group",
+      title: tr("Rename group"),
       value: group,
-      confirmLabel: "Rename",
+      confirmLabel: tr("Rename"),
       validate: (v) =>
-        !v.trim() ? "Enter a name" : v.trim() !== group && existing.includes(v.trim()) ? "That group already exists" : null,
+        !v.trim() ? tr("Enter a name") : v.trim() !== group && existing.includes(v.trim()) ? tr("That group already exists") : null,
     });
     if (name) await renameGroup(group, name);
   };
   const remove = async () => {
     const ok = await confirm({
-      title: `Delete group “${group}”?`,
+      title: tr("Delete group “{0}”?", { 0: group }),
       message: items.length
-        ? `Its ${items.length} session${items.length > 1 ? "s" : ""} will move to Ungrouped — nothing is deleted.`
-        : "The group is empty.",
-      confirmLabel: "Delete group",
+        ? tr(items.length > 1 ? "Its {0} sessions will move to Ungrouped — nothing is deleted." : "Its {0} session will move to Ungrouped — nothing is deleted.", { 0: items.length })
+        : tr("The group is empty."),
+      confirmLabel: tr("Delete group"),
       danger: true,
     });
     if (ok) await deleteGroup(group);
@@ -412,20 +410,17 @@ function ProfileGroup({
   const menu = (Item: typeof ContextMenuItem | typeof DropdownMenuItem, Sep: React.ElementType) => (
     <>
       <Item onSelect={() => set({ profileEditor: { kind: "ssh", group } })}>
-        <Plus /> New session here…
-      </Item>
+        <Plus /> {tr("New session here…")}</Item>
       <Item disabled={!items.length} onSelect={connectAll}>
-        <Plug /> Connect all ({items.length})
+        <Plug /> {tr("Connect all (")}{items.length})
       </Item>
       {group && (
         <>
           <Sep />
           <Item onSelect={() => void rename()}>
-            <Pencil /> Rename…
-          </Item>
+            <Pencil /> {tr("Rename…")}</Item>
           <Item onSelect={() => void remove()} className="text-destructive data-[highlighted]:bg-destructive/15 [&_svg]:text-destructive">
-            <Trash2 /> Delete group
-          </Item>
+            <Trash2 /> {tr("Delete group")}</Item>
         </>
       )}
     </>
@@ -450,7 +445,7 @@ function ProfileGroup({
               count={group ? items.length : undefined}
               actions={
                 <>
-                  <Tooltip content="New session in this group">
+                  <Tooltip content={tr("New session in this group")}>
                     <button
                       type="button"
                       onClick={() => set({ profileEditor: { kind: "ssh", group } })}
@@ -482,7 +477,7 @@ function ProfileGroup({
           <ProfileRow key={p.id} profile={p} dragging={drag?.id === p.id} onPointerDown={(e) => startDrag(e, p)} />
         ))}
         {group && items.length === 0 && (
-          <div className="py-1.5 pl-6 text-[11.5px] text-muted-foreground/60">Empty — drag sessions here</div>
+          <div className="py-1.5 pl-6 text-[11.5px] text-muted-foreground/60">{tr("Empty — drag sessions here")}</div>
         )}
       </Collapse>
     </div>
@@ -525,7 +520,7 @@ function Row({
           {detail}
         </span>
       )}
-      <Tooltip content="Open" side="right">
+      <Tooltip content={tr("Open")} side="right">
         <button
           type="button"
           tabIndex={-1}
@@ -578,25 +573,20 @@ function ProfileRow({
       </ContextMenuTrigger>
       <ContextMenuContent>
         <ContextMenuItem onSelect={() => void connect(profile)}>
-          <Plug /> Connect
-        </ContextMenuItem>
+          <Plug /> {tr("Connect")}</ContextMenuItem>
         <ContextMenuItem onSelect={() => void connect(profile, { split: "row" })}>
-          <Columns2 /> Connect in split
-        </ContextMenuItem>
+          <Columns2 /> {tr("Connect in split")}</ContextMenuItem>
         <ContextMenuItem onSelect={() => set({ profileEditor: { profile, kind: profile.kind } })}>
-          <Pencil /> Edit…
-        </ContextMenuItem>
+          <Pencil /> {tr("Edit…")}</ContextMenuItem>
         <ContextMenuItem
           onSelect={() =>
             void saveProfile({ ...profile, id: crypto.randomUUID(), name: `${profile.name} copy` })
           }
         >
-          <Copy /> Duplicate
-        </ContextMenuItem>
+          <Copy /> {tr("Duplicate")}</ContextMenuItem>
         <ContextMenuSub>
           <ContextMenuSubTrigger>
-            <FolderInput /> Move to group
-          </ContextMenuSubTrigger>
+            <FolderInput /> {tr("Move to group")}</ContextMenuSubTrigger>
           <ContextMenuSubContent>
             {groups.map((g) => (
               <ContextMenuItem key={g} disabled={g === current} onSelect={() => void moveProfile(profile.id, g)}>
@@ -605,8 +595,7 @@ function ProfileRow({
             ))}
             {current && (
               <ContextMenuItem onSelect={() => void moveProfile(profile.id, "")}>
-                <span className="size-3.5" /> Ungrouped
-              </ContextMenuItem>
+                <span className="size-3.5" /> {tr("Ungrouped")}</ContextMenuItem>
             )}
             {(groups.length > 0 || current) && <ContextMenuSeparator />}
             <ContextMenuItem
@@ -615,8 +604,7 @@ function ProfileRow({
                 if (g) await moveProfile(profile.id, g);
               }}
             >
-              <FolderPlus /> New group…
-            </ContextMenuItem>
+              <FolderPlus /> {tr("New group…")}</ContextMenuItem>
           </ContextMenuSubContent>
         </ContextMenuSub>
         <ContextMenuSeparator />
@@ -624,16 +612,15 @@ function ProfileRow({
           destructive
           onSelect={async () => {
             const ok = await confirm({
-              title: `Delete “${profile.name}”?`,
-              message: "The saved session (and any password stored for it) will be removed.",
-              confirmLabel: "Delete",
+              title: tr("Delete “{0}”?", { 0: profile.name }),
+              message: tr("The saved session (and any password stored for it) will be removed."),
+              confirmLabel: tr("Delete"),
               danger: true,
             });
             if (ok) void deleteProfile(profile.id);
           }}
         >
-          <Trash2 /> Delete
-        </ContextMenuItem>
+          <Trash2 /> {tr("Delete")}</ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
   );

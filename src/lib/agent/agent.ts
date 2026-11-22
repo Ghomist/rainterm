@@ -11,6 +11,7 @@ import type { TermSession } from "@/lib/term-session";
 import { useApp } from "@/store/app";
 import { proxyUrl } from "@/lib/proxy-url";
 import { atPrompt, isReadOnly, keysToBytes, readScreen, runCommand, truncate } from "./terminal";
+import { tr } from "@/lib/i18n";
 
 // ------------------------------------------------------------------ state
 
@@ -121,7 +122,7 @@ export function resetThread(paneId: string) {
 // ------------------------------------------------------------------ config
 
 /** Settings → request config (proxy resolved to a URL with its password). */
-async function llmConfig(): Promise<LlmConfig> {
+export async function llmConfig(): Promise<LlmConfig> {
   const st = useApp.getState().settings;
   const a = st.agent;
   if (!a.model.trim()) throw new Error("No model set — choose one in Settings → Agent");
@@ -226,7 +227,7 @@ export function setAutonomy(paneId: string, autonomy: AgentAutonomy) {
 
 export async function ask(paneId: string, text: string) {
   const pane = useApp.getState().panes[paneId];
-  if (!pane || runs.has(paneId)) return;
+  if (!pane?.session || runs.has(paneId)) return;
   const s = pane.session;
   thread(paneId);
   const abort = new AbortController();
@@ -248,7 +249,7 @@ export async function ask(paneId: string, text: string) {
   patchThread(paneId, (t) => ({
     messages: [...t.messages, { role: "user", content: [{ type: "text", text: userContent }] }],
     status: "thinking",
-    activity: "Thinking…",
+    activity: tr("Thinking…"),
     unseen: false,
   }));
 
@@ -335,7 +336,7 @@ function callModel(
             thinkStep = uid();
             thinkStart = performance.now();
             addStep(paneId, { kind: "thinking", id: thinkStep, text: "", ms: 0, live: true });
-            patchThread(paneId, { status: "thinking", activity: "Thinking…" });
+            patchThread(paneId, { status: "thinking", activity: tr("Thinking…") });
           }
           patchThread(paneId, (t) => ({
             steps: t.steps.map((s) => (s.id === thinkStep && s.kind === "thinking" ? { ...s, text: s.text + ev.text } : s)),
@@ -346,7 +347,7 @@ function callModel(
           if (!textStep) {
             textStep = uid();
             addStep(paneId, { kind: "text", id: textStep, text: "", live: true });
-            patchThread(paneId, { activity: "Writing…" });
+            patchThread(paneId, { activity: tr("Writing…") });
           }
           patchThread(paneId, (t) => ({
             steps: t.steps.map((s) => (s.id === textStep && s.kind === "text" ? { ...s, text: s.text + ev.text } : s)),
@@ -382,7 +383,7 @@ async function approve(paneId: string, stepId: string, command: string): Promise
     patchStep(paneId, stepId, { state: "approval" });
     patchThread(paneId, {
       status: "approval",
-      activity: "Waiting for your OK",
+      activity: tr("Waiting for your OK"),
       approval: { stepId, command, resolve: (ok, why) => resolve({ ok, why }) },
     });
   }).finally(() => patchThread(paneId, { approval: null })) as Promise<{ ok: boolean; why?: string }>;
@@ -456,7 +457,7 @@ async function runTool(
     patchStep(paneId, stepId, { state: "running" });
     patchThread(paneId, { status: "acting", activity: `Running ${command.length > 48 ? `${command.slice(0, 48)}…` : command}` });
     const r = await typing(paneId, () => runCommand(s, command, { timeoutMs: timeout, signal }));
-    patchThread(paneId, { status: "thinking", activity: "Reading the output…" });
+    patchThread(paneId, { status: "thinking", activity: tr("Reading the output…") });
     const head = r.fullscreen
       ? "A full-screen program took over the terminal. Screen:"
       : r.running

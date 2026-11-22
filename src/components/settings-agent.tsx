@@ -13,6 +13,7 @@ import { type AgentSettings, type McpSettings, proxyLabel } from "@/lib/settings
 import { cn } from "@/lib/utils";
 import { useApp } from "@/store/app";
 import { Field, Segmented } from "./dialogs";
+import { tr } from "@/lib/i18n";
 
 const KEY = "agent:api-key";
 
@@ -41,9 +42,9 @@ export function AgentSection() {
       await ipc.secretSet(KEY, key.trim());
       setKey("");
       setHasKey(true);
-      toast({ kind: "success", title: "API key saved to the keychain" });
+      toast({ kind: "success", title: tr("API key saved to the keychain") });
     } catch (e) {
-      toast({ kind: "error", title: "Couldn't save the key", description: String(e) });
+      toast({ kind: "error", title: tr("Couldn't save the key"), description: String(e) });
     }
   };
 
@@ -51,7 +52,7 @@ export function AgentSection() {
     setTest({ busy: true });
     const t0 = performance.now();
     try {
-      if (!a.model.trim()) throw new Error("Set a model first.");
+      if (!a.model.trim()) throw new Error(tr("Set a model first."));
       const proxy = await proxyUrl(a.proxy, proxies);
       const reply = await new Promise<string>((resolve, reject) => {
         let text = "";
@@ -79,11 +80,10 @@ export function AgentSection() {
   return (
     <>
       <p className="text-[12.5px] text-muted-foreground">
-        Press <kbd className="rounded border border-border bg-ov/5 px-1 text-[11px]">Ctrl+I</kbd> in a terminal to ask the
-        agent. It sees what's in that terminal and works in it — you watch every keystroke and can interrupt by typing.
+        {tr("Press")}{" "}<kbd className="rounded border border-border bg-ov/5 px-1 text-[11px]">{tr("Ctrl+I")}</kbd> {tr("in a terminal to ask the agent. It sees what's in that terminal and works in it — you watch every keystroke and can interrupt by typing.")}
       </p>
       <div className="flex flex-wrap items-center gap-1.5">
-        <span className="mr-1 text-[12px] text-muted-foreground">Presets</span>
+        <span className="mr-1 text-[12px] text-muted-foreground">{tr("Presets")}</span>
         {PRESETS.map((p) => (
           <Button
             key={p.label}
@@ -95,45 +95,45 @@ export function AgentSection() {
           </Button>
         ))}
       </div>
-      <Field label="API format">
+      <Field label={tr("API format")}>
         <Segmented
           value={a.format}
           options={[
-            { value: "openai", label: "OpenAI-compatible" },
-            { value: "anthropic", label: "Anthropic" },
+            { value: "openai", label: tr("OpenAI-compatible") },
+            { value: "anthropic", label: tr("Anthropic") },
           ]}
           onChange={(format) => update({ format })}
         />
       </Field>
       <div className="grid grid-cols-[1fr_200px] gap-2">
-        <Field label="Base URL">
+        <Field label={tr("Base URL")}>
           <Input
             value={a.baseUrl}
             onChange={(e) => update({ baseUrl: e.target.value })}
-            placeholder={a.format === "openai" ? "https://api.example.com/v1" : "https://api.anthropic.com"}
+            placeholder={a.format === "openai" ? tr("https://api.example.com/v1") : tr("https://api.anthropic.com")}
             className="font-mono text-[12px]"
           />
         </Field>
-        <Field label="Model">
-          <Input value={a.model} onChange={(e) => update({ model: e.target.value })} placeholder="model id" className="font-mono text-[12px]" />
+        <Field label={tr("Model")}>
+          <Input value={a.model} onChange={(e) => update({ model: e.target.value })} placeholder={tr("model id")} className="font-mono text-[12px]" />
         </Field>
       </div>
       <p className="-mt-2 text-[11.5px] text-muted-foreground">
         {a.format === "openai"
-          ? "Requests go to {Base URL}/chat/completions with tool calls (function calling)."
-          : "Requests go to {Base URL}/v1/messages."}
+          ? tr("Requests go to {Base URL}/chat/completions with tool calls (function calling).")
+          : tr("Requests go to {Base URL}/v1/messages.")}
       </p>
-      <Field label="API key">
+      <Field label={tr("API key")}>
         <div className="flex gap-1.5">
           <Input
             type="password"
             value={key}
             onChange={(e) => setKey(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && void saveKey()}
-            placeholder={hasKey ? "saved in the keychain — type to replace" : "paste your key"}
+            placeholder={hasKey ? tr("saved in the keychain — type to replace") : tr("paste your key")}
           />
           <Button variant="outline" disabled={!key.trim()} onClick={() => void saveKey()}>
-            <KeyRound className="size-3.5" /> Save
+            <KeyRound className="size-3.5" /> {tr("Save")}
           </Button>
           {hasKey && (
             <Button
@@ -143,55 +143,55 @@ export function AgentSection() {
                 setHasKey(false);
               }}
             >
-              Remove
+              {tr("Remove")}
             </Button>
           )}
         </div>
       </Field>
       <div className="grid grid-cols-3 gap-2">
-        <Field label="Max output tokens">
+        <Field label={tr("Max output tokens")}>
           <NumberInput value={a.maxTokens} min={256} max={128000} step={1024} onChange={(maxTokens) => update({ maxTokens: Math.max(256, maxTokens) })} />
         </Field>
-        <Field label="Reasoning effort">
+        <Field label={tr("Reasoning effort")}>
           <Select
             value={a.effort}
             onChange={(effort) => update({ effort })}
             options={[
-              { value: "", label: "Provider default" },
-              { value: "low", label: "Low" },
-              { value: "medium", label: "Medium" },
-              { value: "high", label: "High" },
+              { value: "", label: tr("Provider default") },
+              { value: "low", label: tr("Low") },
+              { value: "medium", label: tr("Medium") },
+              { value: "high", label: tr("High") },
             ]}
           />
         </Field>
-        <Field label="Proxy">
+        <Field label={tr("Proxy")}>
           <Select<string | null>
             value={a.proxy}
             onChange={(proxy) => update({ proxy })}
             options={[
-              { value: null, label: "None" },
-              { value: SYSTEM_PROXY, label: "System proxy" },
+              { value: null, label: tr("None") },
+              { value: SYSTEM_PROXY, label: tr("System proxy") },
               ...proxies.map((p) => ({ value: p.id, label: proxyLabel(p) })),
             ]}
           />
         </Field>
       </div>
-      <Field label="Default mode for new conversations">
+      <Field label={tr("Default mode for new conversations")}>
         <Segmented
           value={a.autonomy}
           options={[
-            { value: "suggest", label: "Suggest (types, you run)" },
-            { value: "confirm", label: "Confirm each command" },
-            { value: "auto", label: "Auto (read-only on its own)" },
+            { value: "suggest", label: tr("Suggest (types, you run)") },
+            { value: "confirm", label: tr("Confirm each command") },
+            { value: "auto", label: tr("Auto (read-only on its own)") },
           ]}
           onChange={(autonomy) => update({ autonomy })}
         />
       </Field>
       <div className="flex items-center gap-2">
         <Button variant="outline" disabled={test.busy || !hasKey} onClick={() => void runTest()}>
-          <Zap className={cn("size-3.5", test.busy && "animate-pulse")} /> {test.busy ? "Testing…" : "Test connection"}
+          <Zap className={cn("size-3.5", test.busy && "animate-pulse")} /> {test.busy ? tr("Testing…") : tr("Test connection")}
         </Button>
-        {!hasKey && <span className="text-[12px] text-muted-foreground">Save an API key first.</span>}
+        {!hasKey && <span className="text-[12px] text-muted-foreground">{tr("Save an API key first.")}</span>}
       </div>
       {test.text && (
         <div
@@ -233,7 +233,7 @@ function McpSection() {
   const cli = `claude mcp add --transport http rainterm ${url} --header "Authorization: Bearer ${m.token}"`;
   const copy = (text: string, what: string) => {
     void navigator.clipboard.writeText(text);
-    toast({ kind: "success", title: `Copied ${what}`, duration: 1500 });
+    toast({ kind: "success", title: what, duration: 1500 });
   };
   const exposed = m.host.trim() !== "127.0.0.1" && m.host.trim() !== "localhost" && m.host.trim() !== "::1";
 
@@ -241,9 +241,9 @@ function McpSection() {
     <div className="mt-2 grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3 border-t border-ov/[0.07] pt-4">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <div className="text-[13px] font-medium">MCP server</div>
+          <div className="text-[13px] font-medium">{tr("MCP server")}</div>
           <div className="text-[12px] text-muted-foreground">
-            Lets other agents (Claude Code, Cursor, your own…) use these terminals — commands run visibly here.
+            {tr("Lets other agents (Claude Code, Cursor, your own…) use these terminals — commands run visibly here.")}
           </div>
         </div>
         <Switch checked={m.enabled} onChange={(enabled) => update({ enabled })} />
@@ -251,7 +251,7 @@ function McpSection() {
       {m.enabled && (
         <>
           <div className="grid grid-cols-[1fr_110px] gap-2">
-            <Field label="Listen address">
+            <Field label={tr("Listen address")}>
               <Input
                 value={host}
                 onChange={(e) => setHost(e.target.value)}
@@ -260,7 +260,7 @@ function McpSection() {
                 className="font-mono text-[12px]"
               />
             </Field>
-            <Field label="Port">
+            <Field label={tr("Port")}>
               <NumberInput
                 value={port}
                 min={1}
@@ -274,7 +274,7 @@ function McpSection() {
           </div>
           {exposed && (
             <div className="-mt-1 rounded-md bg-warning/10 px-2.5 py-1.5 text-[11.5px] text-warning">
-              Reachable from other machines on the network — anyone with the token can drive your terminals.
+              {tr("Reachable from other machines on the network — anyone with the token can drive your terminals.")}
             </div>
           )}
           <div
@@ -284,15 +284,15 @@ function McpSection() {
             )}
           >
             <span className={cn("size-2 rounded-full", listening ? "bg-success" : error ? "bg-destructive" : "bg-muted-foreground/40")} />
-            <span className="min-w-0 break-words">{listening ? `Listening on ${listening}` : (error ?? "Starting…")}</span>
+            <span className="min-w-0 break-words">{listening ? tr("Listening on {0}", { 0: listening }) : (error ?? tr("Starting…"))}</span>
           </div>
-          <Field label="Token (clients send it as Authorization: Bearer …)">
+          <Field label={tr("Token (clients send it as Authorization: Bearer …)")}>
             <div className="flex gap-1.5">
               <Input readOnly value={show ? m.token : "•".repeat(Math.min(32, m.token.length))} className="font-mono text-[12px]" />
               <Button variant="ghost" onClick={() => setShow(!show)}>
-                {show ? "Hide" : "Show"}
+                {show ? tr("Hide") : tr("Show")}
               </Button>
-              <Button variant="ghost" size="icon" onClick={() => copy(m.token, "token")}>
+              <Button variant="ghost" size="icon" onClick={() => copy(m.token, tr("Copied the token"))}>
                 <ClipboardCopy className="size-3.5" />
               </Button>
               <Button variant="ghost" size="icon" onClick={() => update({ token: newToken() })}>
@@ -300,33 +300,33 @@ function McpSection() {
               </Button>
             </div>
           </Field>
-          <Field label="What MCP clients may do">
+          <Field label={tr("What MCP clients may do")}>
             <Segmented
               value={m.autonomy}
               options={[
-                { value: "suggest", label: "Suggest (types, you run)" },
-                { value: "confirm", label: "Confirm each command" },
-                { value: "auto", label: "Auto (read-only on its own)" },
+                { value: "suggest", label: tr("Suggest (types, you run)") },
+                { value: "confirm", label: tr("Confirm each command") },
+                { value: "auto", label: tr("Auto (read-only on its own)") },
               ]}
               onChange={(autonomy) => update({ autonomy })}
             />
           </Field>
-          <Field label="Client setup" className="min-w-0">
+          <Field label={tr("Client setup")} className="min-w-0">
             <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1.5">
               <div className="group relative min-w-0">
                 <pre className="overflow-x-auto rounded-md bg-inset py-1.5 pr-16 pl-2.5 font-mono text-[11px] leading-relaxed text-muted-foreground select-text">
                   {show ? cli : cli.replace(m.token, "<token>")}
                 </pre>
-                <Button size="sm" variant="ghost" className="absolute top-0.5 right-0.5 h-6" onClick={() => copy(cli, "Claude Code command")}>
-                  <ClipboardCopy className="size-3" /> Copy
+                <Button size="sm" variant="ghost" className="absolute top-0.5 right-0.5 h-6" onClick={() => copy(cli, tr("Copied the Claude Code command"))}>
+                  <ClipboardCopy className="size-3" /> {tr("Copy")}
                 </Button>
               </div>
               <div className="group relative min-w-0">
                 <pre className="max-h-40 overflow-auto rounded-md bg-inset py-1.5 pr-16 pl-2.5 font-mono text-[11px] leading-relaxed text-muted-foreground select-text">
                   {show ? json : json.replace(m.token, "<token>")}
                 </pre>
-                <Button size="sm" variant="ghost" className="absolute top-0.5 right-0.5 h-6" onClick={() => copy(json, "JSON config")}>
-                  <ClipboardCopy className="size-3" /> Copy
+                <Button size="sm" variant="ghost" className="absolute top-0.5 right-0.5 h-6" onClick={() => copy(json, tr("Copied the JSON config"))}>
+                  <ClipboardCopy className="size-3" /> {tr("Copy")}
                 </Button>
               </div>
             </div>

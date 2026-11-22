@@ -19,6 +19,7 @@ import { ipc, type KeyInfo } from "@/lib/ipc";
 import { toast } from "@/lib/overlay";
 import { useApp } from "@/store/app";
 import { Field } from "./dialogs";
+import { tr } from "@/lib/i18n";
 
 // ------------------------------------------------------------------ shared state
 
@@ -51,7 +52,7 @@ export function openInstallKey(opts: { keyPath?: string | null; paneId?: string 
 /** Connected SSH terminals (targets for installing a key). */
 function useSshPanes() {
   const panes = useApp((s) => s.panes);
-  return Object.values(panes).filter((p) => p.kind === "ssh" && p.status === "connected" && p.session.alive);
+  return Object.values(panes).filter((p) => p.kind === "ssh" && p.status === "connected" && p.session?.alive);
 }
 
 // ------------------------------------------------------------------ settings section
@@ -64,22 +65,22 @@ export function SshKeysSection() {
   return (
     <div className="grid gap-2">
       <div className="flex items-center justify-between">
-        <span className="text-[12px] font-medium text-foreground/90">SSH keys in ~/.ssh</span>
+        <span className="text-[12px] font-medium text-foreground/90">{tr("SSH keys in ~/.ssh")}</span>
         <div className="flex gap-1">
-          <Tooltip content="Read ~/.ssh again">
+          <Tooltip content={tr("Read ~/.ssh again")}>
             <Button size="icon-sm" variant="ghost" onClick={() => void reloadKeys()}>
               <RefreshCw className="size-3.5" />
             </Button>
           </Tooltip>
           <Button size="sm" variant="outline" onClick={openGenerateKey}>
-            <Plus className="size-3.5" /> Generate key
+            <Plus className="size-3.5" /> {tr("Generate key")}
           </Button>
         </div>
       </div>
       {error && <div className="text-[12px] text-destructive">{error}</div>}
       {keys && keys.length === 0 ? (
         <div className="rounded-lg border border-dashed border-ov/10 p-4 text-center text-[12px] text-muted-foreground">
-          No keys yet. Generate one, install it on your servers, and log in without passwords.
+          {tr("No keys yet. Generate one, install it on your servers, and log in without passwords.")}
         </div>
       ) : (
         <div className="grid gap-1">
@@ -108,17 +109,17 @@ function KeyRow({ k }: { k: KeyInfo }) {
           <span className="rounded bg-ov/[0.08] px-1 text-[10px] text-muted-foreground">{k.algorithm}</span>
           {k.encrypted && (
             <span className="flex items-center gap-0.5 rounded bg-ov/[0.08] px-1 text-[10px] text-muted-foreground">
-              <Lock className="size-2.5" /> passphrase
+              <Lock className="size-2.5" /> {tr("passphrase")}
             </span>
           )}
-          {!k.hasPrivate && <span className="rounded bg-warning/15 px-1 text-[10px] text-warning">public only</span>}
+          {!k.hasPrivate && <span className="rounded bg-warning/15 px-1 text-[10px] text-warning">{tr("public only")}</span>}
         </div>
         <div className="truncate font-mono text-[11px] text-muted-foreground">
           {k.fingerprint}
           {k.comment && ` · ${k.comment}`}
         </div>
       </div>
-      <Tooltip content={copied ? "Copied" : "Copy the public key"}>
+      <Tooltip content={copied ? tr("Copied") : tr("Copy the public key")}>
         <Button
           variant="ghost"
           size="icon-sm"
@@ -130,7 +131,7 @@ function KeyRow({ k }: { k: KeyInfo }) {
           {copied ? <Check className="size-3.5 text-success" /> : <ClipboardCopy className="size-3.5" />}
         </Button>
       </Tooltip>
-      <Tooltip content="Install on a connected server (ssh-copy-id)">
+      <Tooltip content={tr("Install on a connected server (ssh-copy-id)")}>
         <Button variant="ghost" size="icon-sm" onClick={() => openInstallKey({ keyPath: k.path })}>
           <Upload className="size-3.5" />
         </Button>
@@ -183,12 +184,12 @@ function GenerateKeyDialog() {
       close();
       toast({
         kind: "success",
-        title: `Created ~/.ssh/${k.name}`,
+        title: tr("Created ~/.ssh/{0}", { 0: k.name }),
         description: k.fingerprint,
-        action: { label: "Install on a server", run: () => openInstallKey({ keyPath: k.path }) },
+        action: { label: tr("Install on a server"), run: () => openInstallKey({ keyPath: k.path }) },
       });
     } catch (e) {
-      toast({ kind: "error", title: "Could not create the key", description: String(e) });
+      toast({ kind: "error", title: tr("Could not create the key"), description: String(e) });
     } finally {
       setBusy(false);
     }
@@ -198,8 +199,8 @@ function GenerateKeyDialog() {
     <Dialog open={open} onOpenChange={(o) => !o && close()}>
       <DialogContent className="max-w-[min(440px,calc(100%-2rem))]">
         <DialogHeader>
-          <DialogTitle>Generate an SSH key</DialogTitle>
-          <DialogDescription>An ed25519 key pair in ~/.ssh, like ssh-keygen -t ed25519.</DialogDescription>
+          <DialogTitle>{tr("Generate an SSH key")}</DialogTitle>
+          <DialogDescription>{tr("An ed25519 key pair in ~/.ssh, like ssh-keygen -t ed25519.")}</DialogDescription>
         </DialogHeader>
         <form
           className="grid gap-3"
@@ -208,32 +209,32 @@ function GenerateKeyDialog() {
             void submit();
           }}
         >
-          <Field label="File name">
+          <Field label={tr("File name")}>
             <Input autoFocus className="font-mono" value={name} onChange={(e) => setName(e.target.value.trim())} />
           </Field>
           {(!nameOk || exists) && (
             <p className="-mt-2 text-[11.5px] text-destructive">
-              {exists ? "A key with this name already exists." : "Letters, digits, '.', '_' and '-' only."}
+              {exists ? tr("A key with this name already exists.") : tr("Letters, digits, '.', '_' and '-' only.")}
             </p>
           )}
-          <Field label="Comment">
-            <Input placeholder="e.g. me@laptop (optional)" value={comment} onChange={(e) => setComment(e.target.value)} />
+          <Field label={tr("Comment")}>
+            <Input placeholder={tr("e.g. me@laptop (optional)")} value={comment} onChange={(e) => setComment(e.target.value)} />
           </Field>
           <div className="grid grid-cols-2 gap-2">
-            <Field label="Passphrase">
-              <Input type="password" placeholder="optional" value={pass} onChange={(e) => setPass(e.target.value)} />
+            <Field label={tr("Passphrase")}>
+              <Input type="password" placeholder={tr("optional")} value={pass} onChange={(e) => setPass(e.target.value)} />
             </Field>
-            <Field label="Repeat">
+            <Field label={tr("Repeat")}>
               <Input type="password" value={pass2} onChange={(e) => setPass2(e.target.value)} />
             </Field>
           </div>
-          {mismatch && pass2 && <p className="-mt-2 text-[11.5px] text-destructive">The passphrases don't match.</p>}
+          {mismatch && pass2 && <p className="-mt-2 text-[11.5px] text-destructive">{tr("The passphrases don't match.")}</p>}
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={close}>
-              Cancel
+              {tr("Cancel")}
             </Button>
             <Button type="submit" disabled={!valid}>
-              {busy ? "Generating…" : "Generate"}
+              {busy ? tr("Generating…") : tr("Generate")}
             </Button>
           </DialogFooter>
         </form>
@@ -277,12 +278,12 @@ function InstallKeyDialog() {
   const usesKey = sshProfile?.auth.kind === "key" && sshProfile.auth.path === key?.path;
 
   const run = async () => {
-    if (!key || !pane?.session.sessionId) return;
+    if (!key || !pane?.session?.sessionId) return;
     setBusy(true);
     try {
       setDone((await ipc.sshCopyId(pane.session.sessionId, key.publicKey)) as "added" | "present");
     } catch (e) {
-      toast({ kind: "error", title: "Could not install the key", description: String(e) });
+      toast({ kind: "error", title: tr("Could not install the key"), description: String(e) });
     } finally {
       setBusy(false);
     }
@@ -291,7 +292,7 @@ function InstallKeyDialog() {
   const useForSession = async () => {
     if (!sshProfile || !key) return;
     await useApp.getState().saveProfile({ ...sshProfile, auth: { kind: "key", path: key.path } });
-    toast({ kind: "success", title: `${sshProfile.name} now logs in with ${key.name}` });
+    toast({ kind: "success", title: tr("{0} now logs in with {1}", { 0: sshProfile.name, 1: key.name }) });
     close();
   };
 
@@ -299,9 +300,9 @@ function InstallKeyDialog() {
     <Dialog open={!!install} onOpenChange={(o) => !o && close()}>
       <DialogContent className="max-w-[min(480px,calc(100%-2rem))]">
         <DialogHeader>
-          <DialogTitle>Install a public key on a server</DialogTitle>
+          <DialogTitle>{tr("Install a public key on a server")}</DialogTitle>
           <DialogDescription>
-            Adds it to ~/.ssh/authorized_keys on the server (like ssh-copy-id), so you can log in with the key.
+            {tr("Adds it to ~/.ssh/authorized_keys on the server (like ssh-copy-id), so you can log in with the key.")}
           </DialogDescription>
         </DialogHeader>
         {done ? (
@@ -309,22 +310,24 @@ function InstallKeyDialog() {
             <div className="flex items-start gap-2.5 rounded-lg border border-success/25 bg-success/10 p-3 text-[12.5px]">
               <Check className="mt-0.5 size-4 shrink-0 text-success" />
               <div>
-                {done === "added" ? "Key installed" : "The key was already installed"} on {pane?.subtitle || pane?.title}.
+                {tr(done === "added" ? "Key installed on {0}." : "The key was already installed on {0}.", { 0: pane?.subtitle || pane?.title })}
                 {sshProfile && !usesKey && (
                   <div className="mt-1 text-muted-foreground">
-                    The session “{sshProfile.name}” still logs in with{" "}
-                    {sshProfile.auth.kind === "password" ? "a password" : sshProfile.auth.kind}.
+                    {tr("The session “{0}” still logs in with {1}.", {
+                      0: sshProfile.name,
+                      1: sshProfile.auth.kind === "password" ? tr("a password") : sshProfile.auth.kind,
+                    })}
                   </div>
                 )}
               </div>
             </div>
             <DialogFooter>
               <Button variant="ghost" onClick={close}>
-                Close
+                {tr("Close")}
               </Button>
               {sshProfile && !usesKey && (
                 <Button onClick={() => void useForSession()}>
-                  <KeyRound className="size-3.5" /> Log in with this key from now on
+                  <KeyRound className="size-3.5" /> {tr("Log in with this key from now on")}
                 </Button>
               )}
             </DialogFooter>
@@ -337,7 +340,7 @@ function InstallKeyDialog() {
               void run();
             }}
           >
-            <Field label="Key">
+            <Field label={tr("Key")}>
               {keys.length ? (
                 <Select
                   value={keyPath}
@@ -354,11 +357,11 @@ function InstallKeyDialog() {
                     openGenerateKey();
                   }}
                 >
-                  <Plus className="size-3.5" /> Generate a key first
+                  <Plus className="size-3.5" /> {tr("Generate a key first")}
                 </Button>
               )}
             </Field>
-            <Field label="Server (a connected SSH terminal)">
+            <Field label={tr("Server (a connected SSH terminal)")}>
               {panes.length ? (
                 <Select
                   value={paneId}
@@ -366,15 +369,15 @@ function InstallKeyDialog() {
                   options={panes.map((p) => ({ value: p.id, label: p.title, hint: p.subtitle }))}
                 />
               ) : (
-                <div className="text-[12px] text-muted-foreground">Connect to the server first, then come back here.</div>
+                <div className="text-[12px] text-muted-foreground">{tr("Connect to the server first, then come back here.")}</div>
               )}
             </Field>
             <DialogFooter>
               <Button type="button" variant="ghost" onClick={close}>
-                Cancel
+                {tr("Cancel")}
               </Button>
               <Button type="submit" disabled={!key || !pane || busy}>
-                <Upload className="size-3.5" /> {busy ? "Installing…" : "Install"}
+                <Upload className="size-3.5" /> {busy ? tr("Installing…") : tr("Install")}
               </Button>
             </DialogFooter>
           </form>

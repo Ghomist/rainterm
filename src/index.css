@@ -293,3 +293,39 @@ html.dark [data-glass="on"] .xterm-screen {
     background-position: -100% 0;
   }
 }
+
+/* agents kanban: dependency lines flow toward a waiting/running task; running cards get a
+   light sweeping across their top edge */
+.kb-flow {
+  animation: kb-dash 1.1s linear infinite;
+}
+@keyframes kb-dash {
+  to {
+    stroke-dashoffset: -18;
+  }
+}
+.kb-run {
+  background: linear-gradient(90deg, transparent, var(--primary), transparent) no-repeat;
+  background-size: 45% 100%;
+  animation: kb-run 1.8s ease-in-out infinite;
+}
+@keyframes kb-run {
+  from {
+    background-position: -60% 0;
+  }
+  to {
+    background-position: 160% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .kb-flow,
+  .kb-run {
+    animation: none;
+  }
+}
+
+/* the kanban scrolls only when the columns don't fit; keep the bars slim */
+.kb-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--foreground) 18%, transparent) transparent;
+}

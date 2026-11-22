@@ -17,6 +17,7 @@ import { BackupSection } from "./settings-backup";
 import { SshKeysSection } from "./SshKeys";
 import { AgentSection } from "./settings-agent";
 import { KeyboardSection } from "./settings-keyboard";
+import { LANGUAGES, systemLang, tr } from "@/lib/i18n";
 
 type Section = "appearance" | "terminal" | "agent" | "network" | "highlight" | "keyboard" | "security";
 
@@ -39,7 +40,7 @@ export function SettingsDialog() {
     <Dialog open={open} onOpenChange={(o) => set({ settingsOpen: o })}>
       <DialogContent className="h-[min(660px,calc(100vh-4rem))] max-w-[min(880px,calc(100%-2rem))] grid-cols-[180px_1fr] gap-0 p-0">
         <nav className="flex flex-col gap-0.5 border-r border-border p-2 pt-4">
-          <DialogTitle className="px-2.5 pb-3 text-[13px]">Settings</DialogTitle>
+          <DialogTitle className="px-2.5 pb-3 text-[13px]">{tr("Settings")}</DialogTitle>
           {sections.map((s) => (
             <button
               key={s.id}
@@ -59,7 +60,7 @@ export function SettingsDialog() {
               )}
               <span className="relative flex items-center gap-2">
                 {s.icon}
-                {s.label}
+                {tr(s.label)}
               </span>
             </button>
           ))}
@@ -112,10 +113,9 @@ function ThemeCard({ t, active, onPick }: { t: TermThemeDef; active: boolean; on
       )}
     >
       <div className="px-2.5 py-2 font-mono text-[10.5px] leading-[1.55]" style={{ background: c.background, color: c.foreground }}>
-        <span style={{ color: c.green }}>me</span>
-        <span style={{ color: c.blue }}> ~/src</span> $ ls
-        <br />
-        <span style={{ color: c.red }}>error</span> <span style={{ color: c.yellow }}>warn</span>{" "}
+        <span style={{ color: c.green }}>{tr("me")}</span>
+        <span style={{ color: c.blue }}> {tr("~/src")}</span> {tr("$ ls")}<br />
+        <span style={{ color: c.red }}>{tr("error")}</span> <span style={{ color: c.yellow }}>{tr("warn")}</span>{" "}
         <span style={{ color: c.cyan }}>10.0.0.1</span> <span style={{ color: c.magenta }}>12:00</span>
       </div>
       <div className="flex items-center gap-1.5 bg-ov/[0.04] px-2.5 py-1.5 text-[11.5px]">
@@ -130,18 +130,29 @@ function Appearance() {
   const [s, update] = useSettings();
   return (
     <>
-      <Field label="Mode">
+      <Field label={tr("Language")}>
+        <Select
+          value={s.language}
+          onChange={(language) => void update({ language })}
+          options={LANGUAGES.map((l) => ({
+            value: l.value,
+            label: l.value === "system" ? tr("Follow system") : l.label,
+            hint: l.value === "system" ? (systemLang() === "zh" ? "简体中文" : tr("English")) : undefined,
+          }))}
+        />
+      </Field>
+      <Field label={tr("Mode")}>
         <Segmented
           value={s.themeMode}
           options={[
-            { value: "dark", label: "Dark" },
-            { value: "light", label: "Light" },
-            { value: "system", label: "Follow system" },
+            { value: "dark", label: tr("Dark") },
+            { value: "light", label: tr("Light") },
+            { value: "system", label: tr("Follow system") },
           ]}
           onChange={(v) => void update({ themeMode: v })}
         />
       </Field>
-      <Field label="Dark theme">
+      <Field label={tr("Dark theme")}>
         <div className="grid grid-cols-3 gap-2">
           {darkThemes.map((t) => (
             <ThemeCard
@@ -153,7 +164,7 @@ function Appearance() {
           ))}
         </div>
       </Field>
-      <Field label="Light theme">
+      <Field label={tr("Light theme")}>
         <div className="grid grid-cols-3 gap-2">
           {lightThemes.map((t) => (
             <ThemeCard
@@ -166,7 +177,7 @@ function Appearance() {
         </div>
       </Field>
       <BackgroundField />
-      <Field label="Font family">
+      <Field label={tr("Font family")}>
         <div className="flex gap-1.5">
           <Input
             value={s.fontFamily}
@@ -179,10 +190,10 @@ function Appearance() {
         </div>
       </Field>
       <div className="grid grid-cols-2 gap-3">
-        <Field label={`Font size · ${s.fontSize}px`}>
+        <Field label={tr("Font size · {0}px", { 0: s.fontSize })}>
           <Slider min={10} max={24} value={s.fontSize} onChange={(fontSize) => void update({ fontSize })} />
         </Field>
-        <Field label={`Line height · ${s.lineHeight.toFixed(2)}`}>
+        <Field label={tr("Line height · {0}", { 0: s.lineHeight.toFixed(2) })}>
           <Slider
             min={1}
             max={1.6}
@@ -192,25 +203,25 @@ function Appearance() {
           />
         </Field>
       </div>
-      <Field label="Cursor">
+      <Field label={tr("Cursor")}>
         <Segmented
           value={s.cursorStyle}
           options={[
-            { value: "bar", label: "Bar" },
-            { value: "block", label: "Block" },
-            { value: "underline", label: "Underline" },
+            { value: "bar", label: tr("Bar") },
+            { value: "block", label: tr("Block") },
+            { value: "underline", label: tr("Underline") },
           ]}
           onChange={(v) => void update({ cursorStyle: v })}
         />
       </Field>
       <Check checked={s.cursorBlink} onChange={(v) => void update({ cursorBlink: v })}>
-        Blinking cursor
+        {tr("Blinking cursor")}
       </Check>
       <Check checked={s.mica} onChange={(v) => void update({ mica: v })}>
-        Window translucency (Mica, Windows 11)
+        {tr("Window translucency (Mica, Windows 11)")}
       </Check>
       <Check checked={s.reduceEffects} onChange={(v) => void update({ reduceEffects: v })}>
-        Reduce animations and effects (smoother on integrated graphics)
+        {tr("Reduce animations and effects (smoother on integrated graphics)")}
       </Check>
     </>
   );
@@ -221,7 +232,7 @@ function BackgroundField() {
   const pick = async () => {
     const { open } = await import("@tauri-apps/plugin-dialog");
     const picked = await open({
-      title: "Background picture",
+      title: tr("Background picture"),
       filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "webp", "gif", "bmp", "avif"] }],
     });
     if (!picked || Array.isArray(picked)) return;
@@ -229,19 +240,19 @@ function BackgroundField() {
       const path = await ipc.backdropImport(picked);
       await update({ backdrop: "image", backdropImage: path });
     } catch (e) {
-      toast({ kind: "error", title: "Couldn't use that picture", description: String(e) });
+      toast({ kind: "error", title: tr("Couldn't use that picture"), description: String(e) });
     }
   };
   const fileName = s.backdropImage?.split(/[\\/]/).pop()?.replace(/-\d+(\.\w+)$/, "$1");
   return (
     <div className="grid gap-3 rounded-lg border border-ov/[0.07] bg-ov/[0.02] p-3">
-      <Field label="Background">
+      <Field label={tr("Background")}>
         <Segmented
           value={s.backdrop}
           options={[
-            { value: "none", label: "Solid color" },
-            { value: "weather", label: "Rain / rainbow" },
-            { value: "image", label: "Picture" },
+            { value: "none", label: tr("Solid color") },
+            { value: "weather", label: tr("Rain / rainbow") },
+            { value: "image", label: tr("Picture") },
           ]}
           onChange={(v) => (v === "image" && !s.backdropImage ? void pick() : void update({ backdrop: v }))}
         />
@@ -249,10 +260,9 @@ function BackgroundField() {
       {s.backdrop === "weather" && (
         <>
           <p className="-mt-1 text-[12px] text-muted-foreground">
-            Dark themes: a rainy night through the window, rain running down the glass and pooling below. Light
-            themes: a rainbow after the rain. It stays behind the text and pauses while the window is hidden.
+            {tr("Dark themes: a rainy night through the window, rain running down the glass and pooling below. Light themes: a rainbow after the rain. It stays behind the text and pauses while the window is hidden.")}
           </p>
-          <Field label={`Liveliness · ${Math.round(s.weatherIntensity * 100)}%`}>
+          <Field label={tr("Liveliness · {0}%", { 0: Math.round(s.weatherIntensity * 100) })}>
             <Slider min={0.2} max={1} step={0.05} value={s.weatherIntensity} onChange={(weatherIntensity) => void update({ weatherIntensity })} />
           </Field>
         </>
@@ -260,23 +270,23 @@ function BackgroundField() {
       {s.backdrop === "image" && (
         <>
           <div className="flex items-center gap-2">
-            <span className="min-w-0 flex-1 truncate text-[12px] text-muted-foreground">{fileName ?? "No picture chosen"}</span>
+            <span className="min-w-0 flex-1 truncate text-[12px] text-muted-foreground">{fileName ?? tr("No picture chosen")}</span>
             <Button size="sm" variant="outline" onClick={() => void pick()}>
-              Choose picture…
+              {tr("Choose picture…")}
             </Button>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <Field label={`Dim · ${Math.round(s.backdropDim * 100)}%`}>
+            <Field label={tr("Dim · {0}%", { 0: Math.round(s.backdropDim * 100) })}>
               <Slider min={0} max={0.9} step={0.05} value={s.backdropDim} onChange={(backdropDim) => void update({ backdropDim })} />
             </Field>
-            <Field label={`Blur · ${s.backdropBlur}px`}>
+            <Field label={tr("Blur · {0}px", { 0: s.backdropBlur })}>
               <Slider min={0} max={24} step={1} value={s.backdropBlur} onChange={(backdropBlur) => void update({ backdropBlur })} />
             </Field>
           </div>
         </>
       )}
       {s.backdrop !== "none" && (
-        <Field label={`Terminal glass · ${Math.round(s.glassOpacity * 100)}% opaque`}>
+        <Field label={tr("Terminal glass · {0}% opaque", { 0: Math.round(s.glassOpacity * 100) })}>
           <Slider min={0.3} max={0.97} step={0.01} value={s.glassOpacity} onChange={(glassOpacity) => void update({ glassOpacity })} />
         </Field>
       )}
@@ -289,17 +299,17 @@ function TerminalSection() {
   const shells = useApp((x) => x.shells);
   return (
     <>
-      <Field label="Default shell">
+      <Field label={tr("Default shell")}>
         <Select<string | null>
           value={s.defaultShell}
           onChange={(defaultShell) => void update({ defaultShell })}
           options={[
-            { value: null, label: `Auto (${shells[0]?.name ?? "none"})` },
+            { value: null, label: tr("Auto ({0})", { 0: shells[0]?.name ?? "none" }) },
             ...shells.map((sh) => ({ value: sh.id, label: sh.name })),
           ]}
         />
       </Field>
-      <Field label="Download folder (SFTP)">
+      <Field label={tr("Download folder (SFTP)")}>
         <div className="flex gap-1.5">
           <Input
             readOnly
@@ -310,11 +320,11 @@ function TerminalSection() {
             variant="outline"
             onClick={async () => {
               const { open } = await import("@tauri-apps/plugin-dialog");
-              const picked = await open({ directory: true, title: "Download folder" });
+              const picked = await open({ directory: true, title: tr("Download folder") });
               if (picked && !Array.isArray(picked)) void update({ downloadDir: picked });
             }}
           >
-            Choose…
+            {tr("Choose…")}
           </Button>
           {s.downloadDir && (
             <Button variant="ghost" size="icon" onClick={() => void update({ downloadDir: null })}>
@@ -323,20 +333,20 @@ function TerminalSection() {
           )}
         </div>
       </Field>
-      <Field label="Switch to a tab when hovering it for">
+      <Field label={tr("Switch to a tab when hovering it for")}>
         <Select
           value={s.tabHoverSwitchMs}
           onChange={(tabHoverSwitchMs) => void update({ tabHoverSwitchMs })}
           options={[
-            { value: 0, label: "Never" },
+            { value: 0, label: tr("Never") },
             ...[150, 300, 500, 800, 1000].map((ms) => ({
               value: ms,
-              label: ms >= 1000 ? `${ms / 1000} s` : `${ms} ms`,
+              label: ms >= 1000 ? `${ms / 1000} s` : tr("{0} ms", { 0: ms }),
             })),
           ]}
         />
       </Field>
-      <Field label="Scrollback lines">
+      <Field label={tr("Scrollback lines")}>
         <NumberInput
           value={s.scrollback}
           min={100}
@@ -346,9 +356,9 @@ function TerminalSection() {
         />
       </Field>
       <div className="grid gap-2.5">
-        <Label>Commands</Label>
+        <Label>{tr("Commands")}</Label>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          <span className="text-[12.5px] text-muted-foreground">Badge on each command shows</span>
+          <span className="text-[12.5px] text-muted-foreground">{tr("Badge on each command shows")}</span>
           {(
             [
               ["exitCode", "Exit code"],
@@ -361,64 +371,61 @@ function TerminalSection() {
               checked={s.blockBadges[k]}
               onChange={(v) => void update({ blockBadges: { ...s.blockBadges, [k]: v } })}
             >
-              {label}
+              {tr(label)}
             </Check>
           ))}
         </div>
         <p className="-mt-1 text-[11.5px] text-muted-foreground">
-          Click a badge to copy that command's output (Shift+click: with the command). Ctrl+↑ / Ctrl+↓ jump
-          between commands.
+          {tr("Click a badge to copy that command's output (Shift+click: with the command). Ctrl+↑ / Ctrl+↓ jump between commands.")}
         </p>
         <Check checked={s.stickyCommand} onChange={(v) => void update({ stickyCommand: v })}>
-          Keep the command at the top while scrolling through its output
+          {tr("Keep the command at the top while scrolling through its output")}
         </Check>
       </div>
-      <Field label="Notify when a long command finishes while you're elsewhere">
+      <Field label={tr("Notify when a long command finishes while you're elsewhere")}>
         <Select
           value={s.notifyAfterSeconds}
           onChange={(notifyAfterSeconds) => void update({ notifyAfterSeconds })}
           options={[
-            { value: 0, label: "Never" },
+            { value: 0, label: tr("Never") },
             ...[5, 10, 30, 60, 300].map((n) => ({
               value: n,
-              label: n >= 60 ? `If it ran ${n / 60} min or longer` : `If it ran ${n} s or longer`,
+              label: n >= 60 ? tr("If it ran {0} min or longer", { 0: n / 60 }) : tr("If it ran {0} s or longer", { 0: n }),
             })),
           ]}
         />
       </Field>
       <div className="grid gap-2.5">
-        <Label>Behavior</Label>
+        <Label>{tr("Behavior")}</Label>
         <Check checked={s.autoReconnect} onChange={(v) => void update({ autoReconnect: v })}>
-          Reconnect SSH sessions automatically when the connection drops
+          {tr("Reconnect SSH sessions automatically when the connection drops")}
         </Check>
         <Check checked={s.lineNumbers} onChange={(v) => void update({ lineNumbers: v })}>
-          Show line numbers
+          {tr("Show line numbers")}
         </Check>
         <Check checked={s.copyOnSelect} onChange={(v) => void update({ copyOnSelect: v })}>
-          Copy on select
+          {tr("Copy on select")}
         </Check>
         <Check checked={s.rightClickPaste} onChange={(v) => void update({ rightClickPaste: v })}>
-          Right click copies selection / pastes
+          {tr("Right click copies selection / pastes")}
         </Check>
         <Check checked={s.sshAutoIntegration} onChange={(v) => void update({ sshAutoIntegration: v })}>
-          Set up shell integration automatically on SSH connect (types one setup line at the first
-          prompt — can answer login-time questions by mistake; you can also enable it per terminal from
-          the command palette)
+          {tr("Set up shell integration automatically on SSH connect (types one setup line at the first prompt — can answer login-time questions by mistake; you can also enable it per terminal from the command palette)")}
         </Check>
         <Check checked={s.suggestions} onChange={(v) => void update({ suggestions: v })}>
-          Completion suggestions while typing: history, commands, paths (Ctrl+Space to pick)
+          {tr("Completion suggestions while typing: history, commands, paths (Ctrl+Space to pick)")}
         </Check>
         <Check checked={s.monitorRemote} onChange={(v) => void update({ monitorRemote: v })}>
-          Monitor SSH hosts (runs a small read-only command on the server every few seconds)
+          {tr("Monitor SSH hosts (runs a small read-only command on the server every few seconds)")}
         </Check>
         <Check checked={s.restoreSession} onChange={(v) => void update({ restoreSession: v })}>
-          Reopen tabs and splits from last time on launch
+          {tr("Reopen tabs and splits from last time on launch")}
         </Check>
         <Check checked={s.confirmClose} onChange={(v) => void update({ confirmClose: v })}>
-          Ask before closing the window while SSH / serial sessions are connected
+          {tr("Ask before closing the window while SSH / serial sessions are connected")}
         </Check>
         <Check checked={s.autoLog} onChange={(v) => void update({ autoLog: v })}>
-          Log every session to a file automatically
+          {tr("Log every session to a file automatically")}
         </Check>
       </div>
     </>
@@ -447,11 +454,10 @@ function HighlightSection() {
   return (
     <>
       <Check checked={s.highlight} onChange={(v) => void update({ highlight: v })}>
-        Highlight keywords in new sessions (errors, warnings, IPs, URLs, dates…)
+        {tr("Highlight keywords in new sessions (errors, warnings, IPs, URLs, dates…)")}
       </Check>
       <p className="-mt-2 text-[12px] text-muted-foreground">
-        Runs in the Rust output pipeline. Text the program already colored and full-screen apps
-        (vim, htop…) are left alone. Patterns are Rust regexes.
+        {tr("Runs in the Rust output pipeline. Text the program already colored and full-screen apps (vim, htop…) are left alone. Patterns are Rust regexes.")}
       </p>
       <div className="grid gap-1.5">
         {rules.map((r, i) => (
@@ -463,7 +469,7 @@ function HighlightSection() {
             />
             <Input
               value={r.name ?? ""}
-              placeholder="Name"
+              placeholder={tr("Name")}
               onChange={(e) => setRules(rules.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))}
               onBlur={() => void commit(rules)}
               className="h-7 text-[12px]"
@@ -484,11 +490,11 @@ function HighlightSection() {
                   label: (
                     <span className="flex items-center gap-2">
                       <span className="size-2.5 rounded-full" style={{ background: c.css }} />
-                      {c.label}
+                      {tr(c.label)}
                     </span>
                   ),
                 })),
-                ...(!SGR_COLORS.some((c) => c.sgr === r.sgr) ? [{ value: r.sgr, label: `SGR ${r.sgr}` }] : []),
+                ...(!SGR_COLORS.some((c) => c.sgr === r.sgr) ? [{ value: r.sgr, label: tr("SGR {0}", { 0: r.sgr }) }] : []),
               ]}
             />
             <Button
@@ -514,7 +520,7 @@ function HighlightSection() {
           size="sm"
           onClick={() => setRules([...rules, { name: "", pattern: "", sgr: "36", enabled: true }])}
         >
-          <Plus className="size-3.5" /> Add rule
+          <Plus className="size-3.5" /> {tr("Add rule")}
         </Button>
         <Button
           variant="ghost"
@@ -526,7 +532,7 @@ function HighlightSection() {
             setErrors([]);
           }}
         >
-          <RotateCcw className="size-3.5" /> Reset to defaults
+          <RotateCcw className="size-3.5" /> {tr("Reset to defaults")}
         </Button>
       </div>
     </>
@@ -540,32 +546,31 @@ function Security() {
   const [msg, setMsg] = useState<string | null>(null);
 
   const setPassword = async () => {
-    if (pw.length < 4) return setMsg("Use at least 4 characters.");
-    if (pw !== pw2) return setMsg("Passwords don't match.");
+    if (pw.length < 4) return setMsg(tr("Use at least 4 characters."));
+    if (pw !== pw2) return setMsg(tr("Passwords don't match."));
     const salt = crypto.randomUUID();
     await update({ lockSalt: salt, lockHash: await sha256Hex(`${salt}${pw}`) });
     setPw("");
     setPw2("");
-    setMsg("Lock password saved.");
+    setMsg(tr("Lock password saved."));
   };
 
   return (
     <>
       <p className="text-[12.5px] text-muted-foreground">
-        Lock the window with a password (Ctrl+Shift+L). Sessions keep running behind the lock
-        screen.
+        {tr("Lock the window with a password (Ctrl+Shift+L). Sessions keep running behind the lock screen.")}
       </p>
       <div className="grid grid-cols-2 gap-2">
-        <Field label={s.lockHash ? "New lock password" : "Lock password"}>
+        <Field label={s.lockHash ? tr("New lock password") : tr("Lock password")}>
           <Input type="password" value={pw} onChange={(e) => setPw(e.target.value)} />
         </Field>
-        <Field label="Repeat">
+        <Field label={tr("Repeat")}>
           <Input type="password" value={pw2} onChange={(e) => setPw2(e.target.value)} />
         </Field>
       </div>
       <div className="flex items-center gap-2">
         <Button size="sm" onClick={() => void setPassword()}>
-          {s.lockHash ? "Change password" : "Set password"}
+          {s.lockHash ? tr("Change password") : tr("Set password")}
         </Button>
         {s.lockHash && (
           <Button
@@ -573,17 +578,17 @@ function Security() {
             variant="ghost"
             onClick={() => void update({ lockHash: null, lockSalt: null, lockAfterMinutes: 0 })}
           >
-            Remove
+            {tr("Remove")}
           </Button>
         )}
         {msg && <span className="text-[12px] text-muted-foreground">{msg}</span>}
       </div>
-      <Field label="Auto-lock after inactivity (also locks on launch)">
+      <Field label={tr("Auto-lock after inactivity (also locks on launch)")}>
         <Select
           disabled={!s.lockHash}
           value={s.lockAfterMinutes}
           onChange={(lockAfterMinutes) => void update({ lockAfterMinutes })}
-          options={[{ value: 0, label: "Never" }, ...[5, 10, 15, 30, 60].map((m) => ({ value: m, label: `${m} minutes` }))]}
+          options={[{ value: 0, label: tr("Never") }, ...[5, 10, 15, 30, 60].map((m) => ({ value: m, label: tr("{0} minutes", { 0: m }) }))]}
         />
       </Field>
     </>

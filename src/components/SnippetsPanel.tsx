@@ -39,6 +39,7 @@ import { cn } from "@/lib/utils";
 import { useActivePane, useApp } from "@/store/app";
 import { Check, Field } from "./dialogs";
 import { sendSnippet } from "./SnippetVars";
+import { tr } from "@/lib/i18n";
 
 /** Type a snippet into the active terminal (mirrored by broadcast / input groups). */
 const send = sendSnippet;
@@ -62,34 +63,33 @@ export function SnippetsPanel() {
   }, [snippets, q]);
 
   const targetLabel = !pane
-    ? "No terminal"
+    ? tr("No terminal")
     : broadcast !== "off" || pane.group
-      ? `${pane.title} + broadcast`
+      ? tr("{0} + broadcast", { 0: pane.title })
       : pane.title;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <PanelHeader title="Quick commands" icon={<Zap />}>
-        <IconButton tip="New quick command" onClick={() => setEditing("new")}>
+      <PanelHeader title={tr("Quick commands")} icon={<Zap />}>
+        <IconButton tip={tr("New quick command")} onClick={() => setEditing("new")}>
           <Plus />
         </IconButton>
       </PanelHeader>
       <div className="px-2 pb-2">
-        <SearchField value={query} onChange={setQuery} placeholder="Search commands" />
+        <SearchField value={query} onChange={setQuery} placeholder={tr("Search commands")} />
       </div>
 
       <ScrollArea className="min-h-0 flex-1" viewportClassName="px-2 pb-2">
         {snippets.length === 0 ? (
           <div className="mt-2 rounded-lg border border-dashed border-ov/10 p-4 text-center text-[12px] leading-relaxed text-muted-foreground">
-            Save command lines you type often — click one to send it to the active terminal.
-            <div className="mt-2">
+            {tr("Save command lines you type often — click one to send it to the active terminal.")}<div className="mt-2">
               <Button size="sm" variant="secondary" onClick={() => setEditing("new")}>
-                <Plus /> Add a command
+                <Plus /> {tr("Add a command")}
               </Button>
             </div>
           </div>
         ) : groups.length === 0 ? (
-          <div className="py-8 text-center text-[12px] text-muted-foreground">No matches</div>
+          <div className="py-8 text-center text-[12px] text-muted-foreground">{tr("No matches")}</div>
         ) : (
           groups.map(([g, items]) => (
             <div key={g || "__"} className="mb-2">
@@ -113,7 +113,7 @@ export function SnippetsPanel() {
           <CornerDownLeft className="size-3" />
         )}
         <span className="truncate">
-          Sends to <span className="text-foreground/80">{targetLabel}</span>
+          {tr("Sends to")}{" "}<span className="text-foreground/80">{targetLabel}</span>
         </span>
       </div>
 
@@ -166,12 +166,12 @@ function SnippetRow({ s, onEdit }: { s: Snippet; onEdit: () => void }) {
             {s.name && (
               <div className="truncate font-mono text-[11px] text-muted-foreground/80">
                 {firstLine}
-                {lines > 1 && <span className="ml-1 text-muted-foreground/60">+{lines - 1} lines</span>}
+                {lines > 1 && <span className="ml-1 text-muted-foreground/60">+{lines - 1} {tr("lines")}</span>}
               </div>
             )}
           </div>
           <div className="hidden shrink-0 items-center gap-0.5 group-hover:flex">
-            <Tooltip content={s.run ? "Type without running" : "Type and run"}>
+            <Tooltip content={s.run ? tr("Type without running") : tr("Type and run")}>
               <button
                 type="button"
                 onClick={(e) => {
@@ -183,7 +183,7 @@ function SnippetRow({ s, onEdit }: { s: Snippet; onEdit: () => void }) {
                 {s.run ? <TextCursorInput /> : <Play />}
               </button>
             </Tooltip>
-            <Tooltip content="Edit">
+            <Tooltip content={tr("Edit")}>
               <button
                 type="button"
                 onClick={(e) => {
@@ -200,33 +200,33 @@ function SnippetRow({ s, onEdit }: { s: Snippet; onEdit: () => void }) {
       </ContextMenuTrigger>
       <ContextMenuContent>
         <ContextMenuItem onSelect={() => fire(true)}>
-          <Play /> Run
+          <Play /> {tr("Run")}
         </ContextMenuItem>
         <ContextMenuItem onSelect={() => fire(false)}>
-          <TextCursorInput /> Type without running
+          <TextCursorInput /> {tr("Type without running")}
         </ContextMenuItem>
         <ContextMenuItem onSelect={() => void navigator.clipboard.writeText(s.command)}>
-          <ClipboardCopy /> Copy command
+          <ClipboardCopy /> {tr("Copy command")}
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem onSelect={onEdit}>
-          <Pencil /> Edit…
+          <Pencil /> {tr("Edit…")}
         </ContextMenuItem>
         <ContextMenuItem onSelect={() => void save({ ...s, id: crypto.randomUUID(), name: s.name ? `${s.name} copy` : "" })}>
-          <Copy /> Duplicate
+          <Copy /> {tr("Duplicate")}
         </ContextMenuItem>
         <ContextMenuItem
           destructive
           onSelect={async () => {
             const ok = await confirm({
-              title: `Delete “${s.name || firstLine}”?`,
-              confirmLabel: "Delete",
+              title: tr("Delete “{0}”?", { 0: s.name || firstLine }),
+              confirmLabel: tr("Delete"),
               danger: true,
             });
             if (ok) void remove(s.id);
           }}
         >
-          <Trash2 /> Delete
+          <Trash2 /> {tr("Delete")}
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
@@ -255,8 +255,8 @@ function SnippetEditor({ value, onClose }: { value: Snippet | "new" | null; onCl
     <Dialog open={!!value} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-[min(480px,calc(100%-2rem))]">
         <DialogHeader>
-          <DialogTitle>{value === "new" ? "New" : "Edit"} quick command</DialogTitle>
-          <DialogDescription>Click it in the Quick commands panel to type it into the active terminal.</DialogDescription>
+          <DialogTitle>{value === "new" ? tr("New") : tr("Edit")} {tr("quick command")}</DialogTitle>
+          <DialogDescription>{tr("Click it in the Quick commands panel to type it into the active terminal.")}</DialogDescription>
         </DialogHeader>
         <form
           className="grid gap-3"
@@ -265,7 +265,7 @@ function SnippetEditor({ value, onClose }: { value: Snippet | "new" | null; onCl
             void submit();
           }}
         >
-          <Field label="Command">
+          <Field label={tr("Command")}>
             <textarea
               autoFocus
               rows={4}
@@ -283,21 +283,20 @@ function SnippetEditor({ value, onClose }: { value: Snippet | "new" | null; onCl
             />
           </Field>
           <p className="-mt-1.5 text-[11.5px] leading-relaxed text-muted-foreground">
-            Blanks are asked for when it runs: <code className="text-foreground/80">{"{{name}}"}</code>,{" "}
-            <code className="text-foreground/80">{"{{port:8080}}"}</code> (default),{" "}
-            <code className="text-foreground/80">{"{{env|dev|prod}}"}</code> (choices).
-            {snippetVars(s.command).length > 0 &&
-              ` This one asks for: ${snippetVars(s.command)
+            {tr("Blanks are asked for when it runs:")}{" "}<code className="text-foreground/80">{"{{name}}"}</code>,{" "}
+            <code className="text-foreground/80">{"{{port:8080}}"}</code> {tr("(default),")}{" "}
+            <code className="text-foreground/80">{"{{env|dev|prod}}"}</code> {tr("(choices).")}{snippetVars(s.command).length > 0 &&
+              tr(" This one asks for: {0}.", { 0: snippetVars(s.command)
                 .map((v) => v.name)
-                .join(", ")}.`}
+                .join(", ") })}
           </p>
           <div className="grid grid-cols-2 gap-2">
-            <Field label="Name">
-              <Input placeholder="optional" value={s.name} onChange={(e) => setS({ ...s, name: e.target.value })} />
+            <Field label={tr("Name")}>
+              <Input placeholder={tr("optional")} value={s.name} onChange={(e) => setS({ ...s, name: e.target.value })} />
             </Field>
-            <Field label="Group">
+            <Field label={tr("Group")}>
               <ComboInput
-                placeholder="optional"
+                placeholder={tr("optional")}
                 value={s.group}
                 onChange={(v) => setS({ ...s, group: v })}
                 options={groups.map((g) => ({ value: g, label: g }))}
@@ -305,14 +304,14 @@ function SnippetEditor({ value, onClose }: { value: Snippet | "new" | null; onCl
             </Field>
           </div>
           <Check checked={s.run} onChange={(v) => setS({ ...s, run: v })}>
-            Run immediately (press Enter after typing)
+            {tr("Run immediately (press Enter after typing)")}
           </Check>
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={onClose}>
-              Cancel
+              {tr("Cancel")}
             </Button>
             <Button type="submit" disabled={!valid}>
-              Save
+              {tr("Save")}
             </Button>
           </DialogFooter>
         </form>

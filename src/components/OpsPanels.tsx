@@ -40,6 +40,7 @@ import { confirm, prompt, toast } from "@/lib/overlay";
 import { cn } from "@/lib/utils";
 import { useActivePane, useApp } from "@/store/app";
 import { openRunDialog, RunContainerDialog } from "./ContainerRun";
+import { tr } from "@/lib/i18n";
 
 // ------------------------------------------------------------------ shared
 
@@ -52,11 +53,11 @@ interface Target {
 
 function useTarget(): { target: Target | null; reason: string } {
   const pane = useActivePane();
-  if (!pane) return { target: null, reason: "Open a terminal first" };
-  if (pane.kind === "local") return { target: { key: "local", sessionId: null, label: "This computer" }, reason: "" };
-  if (pane.kind === "serial") return { target: null, reason: "Serial sessions have no host to inspect" };
+  if (!pane) return { target: null, reason: tr("Open a terminal first") };
+  if (pane.kind === "local") return { target: { key: "local", sessionId: null, label: tr("This computer") }, reason: "" };
+  if (pane.kind === "serial") return { target: null, reason: tr("Serial sessions have no host to inspect") };
   const id = pane.session.sessionId;
-  if (pane.status !== "connected" || !id) return { target: null, reason: "Waiting for the SSH session to connect…" };
+  if (pane.status !== "connected" || !id) return { target: null, reason: tr("Waiting for the SSH session to connect…") };
   return { target: { key: id, sessionId: id, label: pane.title }, reason: "" };
 }
 
@@ -112,14 +113,14 @@ function typeInto(cmd: string) {
   const st = useApp.getState();
   const tab = st.tabs.find((x) => x.id === st.activeTabId);
   const pane = tab ? st.panes[tab.activePane] : undefined;
-  if (!pane?.session.alive) return toast({ kind: "info", title: "No connected terminal" });
+  if (!pane?.session?.alive) return toast({ kind: "info", title: tr("No connected terminal") });
   pane.session.input(`${cmd}\r`, true);
   pane.session.focus();
 }
 
 const copy = (text: string) => {
   void navigator.clipboard.writeText(text);
-  toast({ kind: "success", title: "Copied", description: text, duration: 1500 });
+  toast({ kind: "success", title: tr("Copied"), description: text, duration: 1500 });
 };
 
 function fail(title: string, e: unknown) {
@@ -151,7 +152,7 @@ function Header({
   return (
     <PanelHeader title={title} icon={icon}>
       {target && <span className="max-w-32 truncate pr-1 text-[11px] text-muted-foreground">{target.label}</span>}
-      <IconButton tip="Refresh" disabled={!target} onClick={onRefresh}>
+      <IconButton tip={tr("Refresh")} disabled={!target} onClick={onRefresh}>
         <motion.span
           animate={loading ? { rotate: 360 } : { rotate: 0 }}
           transition={loading ? { duration: 0.9, repeat: Number.POSITIVE_INFINITY, ease: "linear" } : { duration: 0 }}
@@ -358,8 +359,8 @@ export function PortsPanel() {
     bump((n) => n + 1);
     toast({
       kind: "success",
-      title: `localhost:${local} → ${target.label}:${p.port}`,
-      action: { label: "Open", run: () => void openUrl(`http://localhost:${local}`) },
+      title: tr("localhost:{0} → {1}:{2}", { 0: local, 1: target.label, 2: p.port }),
+      action: { label: tr("Open"), run: () => void openUrl(`http://localhost:${local}`) },
     });
   };
   const unforward = async (f: Forwarded) => {
@@ -371,9 +372,9 @@ export function PortsPanel() {
   const kill = async (p: PortEntry) => {
     if (!target || !p.pid) return;
     const ok = await confirm({
-      title: `End ${p.process ?? "process"} (${p.pid})?`,
-      message: `It's listening on ${p.proto.toUpperCase()} ${p.port}${target.sessionId ? ` on ${target.label}` : ""}.`,
-      confirmLabel: "End process",
+      title: tr("End {0} ({1})?", { 0: p.process ?? "process", 1: p.pid }),
+      message: tr("It's listening on {0} {1}{2}.", { 0: p.proto.toUpperCase(), 1: p.port, 2: target.sessionId ? ` on ${target.label}` : "" }),
+      confirmLabel: tr("End process"),
       danger: true,
     });
     if (!ok) return;
@@ -382,39 +383,39 @@ export function PortsPanel() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <Header title="Ports" icon={<Network />} target={target} loading={loading} onRefresh={refresh} />
+      <Header title={tr("Ports")} icon={<Network />} target={target} loading={loading} onRefresh={refresh} />
       {!target ? (
         <Empty icon={<Network />} text={reason} />
       ) : (
         <>
           <div className="grid gap-1.5 px-2 pb-2">
-            <SearchField value={query} onChange={setQuery} placeholder="Port, address or process" />
+            <SearchField value={query} onChange={setQuery} placeholder={tr("Port, address or process")} />
             <Tabs
               id="ports"
               value={proto}
               onChange={setProto}
               options={[
-                { value: "tcp", label: "TCP" },
-                { value: "udp", label: "UDP" },
-                { value: "all", label: "All" },
+                { value: "tcp", label: tr("TCP") },
+                { value: "udp", label: tr("UDP") },
+                { value: "all", label: tr("All") },
               ]}
             />
           </div>
           {fw.length > 0 && (
             <div className="mx-2 mb-2 rounded-lg border border-primary/25 bg-primary/[0.06] p-1">
-              <div className="px-1.5 pt-0.5 pb-1 text-[11px] font-medium text-primary">Forwarded to this computer</div>
+              <div className="px-1.5 pt-0.5 pb-1 text-[11px] font-medium text-primary">{tr("Forwarded to this computer")}</div>
               {fw.map((f) => (
                 <Row
                   key={f.local}
                   mono
-                  title={`localhost:${f.local}`}
-                  detail={`→ ${f.remoteHost === "127.0.0.1" ? "" : `${f.remoteHost}:`}${f.remotePort} on ${target.label}`}
+                  title={tr("localhost:{0}", { 0: f.local })}
+                  detail={tr("→ {0}{1} on {2}", { 0: f.remoteHost === "127.0.0.1" ? "" : `${f.remoteHost}:`, 1: f.remotePort, 2: target.label })}
                   actions={
                     <>
-                      <Act tip="Open in browser" onClick={() => void openUrl(`http://localhost:${f.local}`)}>
+                      <Act tip={tr("Open in browser")} onClick={() => void openUrl(`http://localhost:${f.local}`)}>
                         <Globe />
                       </Act>
-                      <Act tip="Stop forwarding" onClick={() => void unforward(f)} danger>
+                      <Act tip={tr("Stop forwarding")} onClick={() => void unforward(f)} danger>
                         <Unplug />
                       </Act>
                     </>
@@ -422,13 +423,13 @@ export function PortsPanel() {
                   menu={
                     <>
                       <ContextMenuItem onSelect={() => void openUrl(`http://localhost:${f.local}`)}>
-                        <Globe /> Open in browser
+                        <Globe /> {tr("Open in browser")}
                       </ContextMenuItem>
                       <ContextMenuItem onSelect={() => copy(`localhost:${f.local}`)}>
-                        <ClipboardCopy /> Copy address
+                        <ClipboardCopy /> {tr("Copy address")}
                       </ContextMenuItem>
                       <ContextMenuItem destructive onSelect={() => void unforward(f)}>
-                        <Unplug /> Stop forwarding
+                        <Unplug /> {tr("Stop forwarding")}
                       </ContextMenuItem>
                     </>
                   }
@@ -439,9 +440,9 @@ export function PortsPanel() {
           {error && !data ? (
             <Empty error text={error} />
           ) : !data ? (
-            <Empty icon={<Network className="animate-pulse" />} text="Listing ports…" />
+            <Empty icon={<Network className="animate-pulse" />} text={tr("Listing ports…")} />
           ) : !list.length ? (
-            <Empty icon={<Network />} text={q ? "No matches" : "Nothing is listening"} />
+            <Empty icon={<Network />} text={q ? tr("No matches") : tr("Nothing is listening")} />
           ) : (
             <ScrollArea className="min-h-0 flex-1" viewportClassName="px-2 pb-2">
               {list.map((p) => {
@@ -460,17 +461,17 @@ export function PortsPanel() {
                     actions={
                       <>
                         {web && local && (
-                          <Act tip="Open in browser" onClick={() => void openUrl(`http://localhost:${p.port}`)}>
+                          <Act tip={tr("Open in browser")} onClick={() => void openUrl(`http://localhost:${p.port}`)}>
                             <Globe />
                           </Act>
                         )}
                         {web && !local && (
-                          <Act tip="Forward to this computer" onClick={() => void forward(p)}>
+                          <Act tip={tr("Forward to this computer")} onClick={() => void forward(p)}>
                             <ArrowLeftRight />
                           </Act>
                         )}
                         {p.pid && (
-                          <Act tip="End process" onClick={() => void kill(p)} danger>
+                          <Act tip={tr("End process")} onClick={() => void kill(p)} danger>
                             <Skull />
                           </Act>
                         )}
@@ -480,22 +481,22 @@ export function PortsPanel() {
                       <>
                         {web && local && (
                           <ContextMenuItem onSelect={() => void openUrl(`http://localhost:${p.port}`)}>
-                            <Globe /> Open in browser
+                            <Globe /> {tr("Open in browser")}
                           </ContextMenuItem>
                         )}
                         {web && !local && (
                           <ContextMenuItem onSelect={() => void forward(p)}>
-                            <ArrowLeftRight /> Forward to this computer
+                            <ArrowLeftRight /> {tr("Forward to this computer")}
                           </ContextMenuItem>
                         )}
                         <ContextMenuItem onSelect={() => copy(`${wildcard(p.address) ? "localhost" : p.address}:${p.port}`)}>
-                          <ClipboardCopy /> Copy address
+                          <ClipboardCopy /> {tr("Copy address")}
                         </ContextMenuItem>
                         {p.pid && (
                           <>
                             <ContextMenuSeparator />
                             <ContextMenuItem destructive onSelect={() => void kill(p)}>
-                              <Skull /> End process
+                              <Skull /> {tr("End process")}
                             </ContextMenuItem>
                           </>
                         )}
@@ -615,9 +616,9 @@ export function ContainersPanel() {
     if (!target) return;
     const n = usersOf(i.ref, i.id).length;
     const ok = await confirm({
-      title: `Remove image “${i.ref}”?`,
-      message: n ? `${n} container${n > 1 ? "s use" : " uses"} it — removal fails while they exist.` : "It can be pulled again later.",
-      confirmLabel: "Remove",
+      title: tr("Remove image “{0}”?", { 0: i.ref }),
+      message: n ? tr(n > 1 ? "{0} containers use it — removal fails while they exist." : "{0} container uses it — removal fails while it exists.", { 0: n }) : tr("It can be pulled again later."),
+      confirmLabel: tr("Remove"),
       danger: true,
     });
     if (!ok) return;
@@ -635,9 +636,9 @@ export function ContainersPanel() {
     if (!target) return;
     if (verb === "rm") {
       const ok = await confirm({
-        title: `Remove container “${c.name}”?`,
-        message: c.state === "running" ? "It's running — it will be stopped and removed." : "Its filesystem changes are lost.",
-        confirmLabel: "Remove",
+        title: tr("Remove container “{0}”?", { 0: c.name }),
+        message: c.state === "running" ? tr("It's running — it will be stopped and removed.") : tr("Its filesystem changes are lost."),
+        confirmLabel: tr("Remove"),
         danger: true,
       });
       if (!ok) return;
@@ -656,7 +657,7 @@ export function ContainersPanel() {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <Header
-        title="Containers"
+        title={tr("Containers")}
         icon={<Boxes />}
         target={target}
         loading={view === "images" ? images.loading : loading}
@@ -668,7 +669,7 @@ export function ContainersPanel() {
       ) : error && !data ? (
         <Empty error text={error} />
       ) : !data ? (
-        <Empty icon={<Boxes className="animate-pulse" />} text="Asking docker…" />
+        <Empty icon={<Boxes className="animate-pulse" />} text={tr("Asking docker…")} />
       ) : (
         <>
           <div className="grid gap-1.5 px-2 pb-1.5">
@@ -677,19 +678,19 @@ export function ContainersPanel() {
               value={view}
               onChange={setView}
               options={[
-                { value: "containers", label: `Containers (${running}/${data.list.length})` },
-                { value: "images", label: images.data ? `Images (${images.data.length})` : "Images" },
+                { value: "containers", label: tr("Containers ({0}/{1})", { 0: running, 1: data.list.length }) },
+                { value: "images", label: images.data ? tr("Images ({0})", { 0: images.data.length }) : tr("Images") },
               ]}
             />
-            <SearchField value={query} onChange={setQuery} placeholder={view === "images" ? "Repository, tag or ID" : "Name, image or port"} />
+            <SearchField value={query} onChange={setQuery} placeholder={view === "images" ? tr("Repository, tag or ID") : tr("Name, image or port")} />
           </div>
           {view === "images" ? (
             images.error && !images.data ? (
               <Empty error text={images.error} />
             ) : !images.data ? (
-              <Empty icon={<Layers className="animate-pulse" />} text="Listing images…" />
+              <Empty icon={<Layers className="animate-pulse" />} text={tr("Listing images…")} />
             ) : !imageList.length ? (
-              <Empty icon={<Layers />} text={q ? "No matches" : "No images"} />
+              <Empty icon={<Layers />} text={q ? tr("No matches") : tr("No images")} />
             ) : (
               <ScrollArea className="min-h-0 flex-1" viewportClassName="px-2 pb-2">
                 {imageList.map((i) => {
@@ -700,31 +701,31 @@ export function ContainersPanel() {
                       title={i.ref}
                       detail={`${i.id.slice(0, 12)} · ${i.size} · ${i.created}${n ? ` · ${n} container${n > 1 ? "s" : ""}` : ""}`}
                       actions={
-                        <Act tip="Run a container…" onClick={() => runFrom(i.ref, undefined, i.id)}>
+                        <Act tip={tr("Run a container…")} onClick={() => runFrom(i.ref, undefined, i.id)}>
                           <Play />
                         </Act>
                       }
                       menu={
                         <>
                           <ContextMenuItem onSelect={() => typeInto(`${tool} image inspect ${i.ref}`)}>
-                            <FileText /> Inspect
+                            <FileText /> {tr("Inspect")}
                           </ContextMenuItem>
                           <ContextMenuItem onSelect={() => typeInto(`${tool} history ${i.ref}`)}>
-                            <FileText /> Layer history
+                            <FileText /> {tr("Layer history")}
                           </ContextMenuItem>
                           <ContextMenuItem onSelect={() => copy(i.ref)}>
-                            <ClipboardCopy /> Copy name
+                            <ClipboardCopy /> {tr("Copy name")}
                           </ContextMenuItem>
                           <ContextMenuSeparator />
                           <ContextMenuItem onSelect={() => runFrom(i.ref, undefined, i.id)}>
-                            <Play /> Run a container…
+                            <Play /> {tr("Run a container…")}
                           </ContextMenuItem>
                           <ContextMenuItem onSelect={() => typeInto(`${tool} pull ${i.ref}`)}>
-                            <RotateCw /> Pull again
+                            <RotateCw /> {tr("Pull again")}
                           </ContextMenuItem>
                           <ContextMenuSeparator />
                           <ContextMenuItem destructive onSelect={() => void removeImage(i)}>
-                            <Trash2 /> Remove image
+                            <Trash2 /> {tr("Remove image")}
                           </ContextMenuItem>
                         </>
                       }
@@ -734,7 +735,7 @@ export function ContainersPanel() {
               </ScrollArea>
             )
           ) : !list.length ? (
-            <Empty icon={<Boxes />} text={q ? "No matches" : "No containers"} />
+            <Empty icon={<Boxes />} text={q ? tr("No matches") : tr("No containers")} />
           ) : (
             <ScrollArea className="min-h-0 flex-1" viewportClassName="px-2 pb-2">
               {list.map((c) => {
@@ -751,18 +752,18 @@ export function ContainersPanel() {
                       <>
                         {up ? (
                           <>
-                            <Act tip="Follow logs in terminal" onClick={() => typeInto(`${tool} logs -f --tail 200 ${c.name}`)}>
+                            <Act tip={tr("Follow logs in terminal")} onClick={() => typeInto(`${tool} logs -f --tail 200 ${c.name}`)}>
                               <FileText />
                             </Act>
-                            <Act tip="Open a shell in terminal" onClick={() => typeInto(`${tool} exec -it ${c.name} sh`)}>
+                            <Act tip={tr("Open a shell in terminal")} onClick={() => typeInto(`${tool} exec -it ${c.name} sh`)}>
                               <SquareTerminal />
                             </Act>
-                            <Act tip="Stop" onClick={() => void act(c, "stop", "stop")}>
+                            <Act tip={tr("Stop")} onClick={() => void act(c, "stop", "stop")}>
                               <Square />
                             </Act>
                           </>
                         ) : (
-                          <Act tip="Start" onClick={() => void act(c, "start", "start")}>
+                          <Act tip={tr("Start")} onClick={() => void act(c, "start", "start")}>
                             <Play />
                           </Act>
                         )}
@@ -774,44 +775,44 @@ export function ContainersPanel() {
                         {up ? (
                           <>
                             <ContextMenuItem onSelect={() => typeInto(`${tool} logs -f --tail 200 ${c.name}`)}>
-                              <FileText /> Follow logs
+                              <FileText /> {tr("Follow logs")}
                             </ContextMenuItem>
                             <ContextMenuItem onSelect={() => typeInto(`${tool} exec -it ${c.name} sh`)}>
-                              <SquareTerminal /> Open shell
+                              <SquareTerminal /> {tr("Open shell")}
                             </ContextMenuItem>
                           </>
                         ) : (
                           <ContextMenuItem onSelect={() => typeInto(`${tool} logs --tail 200 ${c.name}`)}>
-                            <FileText /> Show logs
+                            <FileText /> {tr("Show logs")}
                           </ContextMenuItem>
                         )}
                         <ContextMenuItem onSelect={() => typeInto(`${tool} inspect ${c.name}`)}>
-                          <FileText /> Inspect
+                          <FileText /> {tr("Inspect")}
                         </ContextMenuItem>
                         <ContextMenuItem onSelect={() => copy(c.id)}>
-                          <ClipboardCopy /> Copy ID
+                          <ClipboardCopy /> {tr("Copy ID")}
                         </ContextMenuItem>
                         <ContextMenuSeparator />
                         <ContextMenuItem onSelect={() => runFrom(c.image, c.id)}>
-                          <Copy /> Run a copy…
+                          <Copy /> {tr("Run a copy…")}
                         </ContextMenuItem>
                         {up ? (
                           <>
                             <ContextMenuItem onSelect={() => void act(c, "restart", "restart")}>
-                              <RotateCw /> Restart
+                              <RotateCw /> {tr("Restart")}
                             </ContextMenuItem>
                             <ContextMenuItem onSelect={() => void act(c, "stop", "stop")}>
-                              <Square /> Stop
+                              <Square /> {tr("Stop")}
                             </ContextMenuItem>
                           </>
                         ) : (
                           <ContextMenuItem onSelect={() => void act(c, "start", "start")}>
-                            <Play /> Start
+                            <Play /> {tr("Start")}
                           </ContextMenuItem>
                         )}
                         <ContextMenuSeparator />
                         <ContextMenuItem destructive onSelect={() => void act(c, "rm", "remove")}>
-                          <Trash2 /> Remove
+                          <Trash2 /> {tr("Remove")}
                         </ContextMenuItem>
                       </>
                     }
@@ -902,7 +903,7 @@ export function K8sPanel() {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <Header
-        title="Kubernetes"
+        title={tr("Kubernetes")}
         icon={<Ship />}
         target={target}
         loading={meta.loading || list.loading}
@@ -916,12 +917,12 @@ export function K8sPanel() {
       ) : meta.error && !meta.data ? (
         <Empty error text={meta.error} />
       ) : !meta.data ? (
-        <Empty icon={<Ship className="animate-pulse" />} text="Asking kubectl…" />
+        <Empty icon={<Ship className="animate-pulse" />} text={tr("Asking kubectl…")} />
       ) : (
         <>
           <div className="grid gap-1.5 px-2 pb-2">
             <div className="flex items-center gap-1.5">
-              <Tooltip content={`Context: ${meta.data.ctx}`}>
+              <Tooltip content={tr("Context: {0}", { 0: meta.data.ctx })}>
                 <span className="min-w-0 flex-1 truncate rounded-md bg-ov/[0.05] px-2 py-1 font-mono text-[11px] text-muted-foreground">
                   {meta.data.ctx}
                 </span>
@@ -932,7 +933,7 @@ export function K8sPanel() {
                 value={namespace}
                 onChange={pickNs}
                 options={[
-                  { value: ALL_NS, label: "All namespaces" },
+                  { value: ALL_NS, label: tr("All namespaces") },
                   ...[...new Set([...meta.data.namespaces, namespace])]
                     .filter((n) => n !== ALL_NS)
                     .map((n) => ({ value: n, label: n })),
@@ -944,19 +945,19 @@ export function K8sPanel() {
               value={kind}
               onChange={setKind}
               options={[
-                { value: "pods", label: "Pods" },
-                { value: "deployments", label: "Deployments" },
-                { value: "services", label: "Services" },
+                { value: "pods", label: tr("Pods") },
+                { value: "deployments", label: tr("Deployments") },
+                { value: "services", label: tr("Services") },
               ]}
             />
-            <SearchField value={query} onChange={setQuery} placeholder={`Filter ${kind}`} />
+            <SearchField value={query} onChange={setQuery} placeholder={tr("Filter {0}", { 0: kind })} />
           </div>
           {list.error && !list.data ? (
             <Empty error text={list.error} />
           ) : !list.data ? (
-            <Empty icon={<Ship className="animate-pulse" />} text={`Loading ${kind}…`} />
+            <Empty icon={<Ship className="animate-pulse" />} text={tr("Loading {0}…", { 0: kind })} />
           ) : !items.length ? (
-            <Empty icon={<Ship />} text={q ? "No matches" : `No ${kind} in ${showNs ? "any namespace" : namespace}`} />
+            <Empty icon={<Ship />} text={q ? tr("No matches") : tr("No {0} in {1}", { 0: kind, 1: showNs ? tr("any namespace") : namespace })} />
           ) : (
             <ScrollArea className="min-h-0 flex-1" viewportClassName="px-2 pb-2">
               {kind === "pods" &&
@@ -975,10 +976,10 @@ export function K8sPanel() {
                       right={p.age}
                       actions={
                         <>
-                          <Act tip="Follow logs in terminal" onClick={() => typeInto(logs)}>
+                          <Act tip={tr("Follow logs in terminal")} onClick={() => typeInto(logs)}>
                             <FileText />
                           </Act>
-                          <Act tip="Open a shell in terminal" onClick={() => typeInto(shell)}>
+                          <Act tip={tr("Open a shell in terminal")} onClick={() => typeInto(shell)}>
                             <SquareTerminal />
                           </Act>
                         </>
@@ -986,31 +987,31 @@ export function K8sPanel() {
                       menu={
                         <>
                           <ContextMenuItem onSelect={() => typeInto(logs)}>
-                            <FileText /> Follow logs
+                            <FileText /> {tr("Follow logs")}
                           </ContextMenuItem>
                           <ContextMenuItem onSelect={() => typeInto(shell)}>
-                            <SquareTerminal /> Open shell
+                            <SquareTerminal /> {tr("Open shell")}
                           </ContextMenuItem>
                           <ContextMenuItem onSelect={() => typeInto(`kubectl describe pod ${nsFlag(p.ns)} ${p.name}`)}>
-                            <FileText /> Describe
+                            <FileText /> {tr("Describe")}
                           </ContextMenuItem>
                           <ContextMenuItem onSelect={() => copy(p.name)}>
-                            <ClipboardCopy /> Copy name
+                            <ClipboardCopy /> {tr("Copy name")}
                           </ContextMenuItem>
                           <ContextMenuSeparator />
                           <ContextMenuItem
                             destructive
                             onSelect={async () => {
                               const ok = await confirm({
-                                title: `Delete pod “${p.name}”?`,
-                                message: "If a controller manages it, a replacement is created.",
-                                confirmLabel: "Delete",
+                                title: tr("Delete pod “{0}”?", { 0: p.name }),
+                                message: tr("If a controller manages it, a replacement is created."),
+                                confirmLabel: tr("Delete"),
                                 danger: true,
                               });
                               if (ok) void kubectl(["delete", "pod", "-n", p.ns, p.name, "--wait=false"], `Deleted ${p.name}`);
                             }}
                           >
-                            <Trash2 /> Delete
+                            <Trash2 /> {tr("Delete")}
                           </ContextMenuItem>
                         </>
                       }
@@ -1032,7 +1033,7 @@ export function K8sPanel() {
                       right={age(d.metadata.creationTimestamp)}
                       actions={
                         <Act
-                          tip="Restart (rollout)"
+                          tip={tr("Restart (rollout)")}
                           onClick={() => void kubectl(["rollout", "restart", "deployment", "-n", dns, name], `Restarting ${name}`)}
                         >
                           <RotateCw />
@@ -1041,41 +1042,41 @@ export function K8sPanel() {
                       menu={
                         <>
                           <ContextMenuItem onSelect={() => typeInto(`kubectl rollout status deployment ${nsFlag(dns)} ${name}`)}>
-                            <FileText /> Rollout status
+                            <FileText /> {tr("Rollout status")}
                           </ContextMenuItem>
                           <ContextMenuItem onSelect={() => typeInto(`kubectl describe deployment ${nsFlag(dns)} ${name}`)}>
-                            <FileText /> Describe
+                            <FileText /> {tr("Describe")}
                           </ContextMenuItem>
                           <ContextMenuItem onSelect={() => copy(name)}>
-                            <ClipboardCopy /> Copy name
+                            <ClipboardCopy /> {tr("Copy name")}
                           </ContextMenuItem>
                           <ContextMenuSeparator />
                           <ContextMenuItem
                             onSelect={async () => {
                               const ok = await confirm({
-                                title: `Restart “${name}”?`,
-                                message: "Pods are replaced one by one (kubectl rollout restart).",
-                                confirmLabel: "Restart",
+                                title: tr("Restart “{0}”?", { 0: name }),
+                                message: tr("Pods are replaced one by one (kubectl rollout restart)."),
+                                confirmLabel: tr("Restart"),
                               });
                               if (ok) void kubectl(["rollout", "restart", "deployment", "-n", dns, name], `Restarting ${name}`);
                             }}
                           >
-                            <RotateCw /> Rollout restart
+                            <RotateCw /> {tr("Rollout restart")}
                           </ContextMenuItem>
                           <ContextMenuItem
                             onSelect={async () => {
                               const v = await prompt({
-                                title: `Scale “${name}”`,
-                                message: "Number of replicas",
+                                title: tr("Scale “{0}”", { 0: name }),
+                                message: tr("Number of replicas"),
                                 value: String(want),
-                                confirmLabel: "Scale",
-                                validate: (x) => (/^\d+$/.test(x.trim()) && Number(x) <= 500 ? null : "Enter a number from 0 to 500"),
+                                confirmLabel: tr("Scale"),
+                                validate: (x) => (/^\d+$/.test(x.trim()) && Number(x) <= 500 ? null : tr("Enter a number from 0 to 500")),
                               });
                               if (v !== null)
                                 void kubectl(["scale", "deployment", "-n", dns, name, `--replicas=${v.trim()}`], `Scaled ${name} to ${v.trim()}`);
                             }}
                           >
-                            <Scaling /> Scale…
+                            <Scaling /> {tr("Scale…")}
                           </ContextMenuItem>
                         </>
                       }
@@ -1098,14 +1099,14 @@ export function K8sPanel() {
                       menu={
                         <>
                           <ContextMenuItem onSelect={() => typeInto(`kubectl describe service ${nsFlag(sns)} ${name}`)}>
-                            <FileText /> Describe
+                            <FileText /> {tr("Describe")}
                           </ContextMenuItem>
                           <ContextMenuItem onSelect={() => copy(`${name}.${sns}.svc`)}>
-                            <ClipboardCopy /> Copy DNS name
+                            <ClipboardCopy /> {tr("Copy DNS name")}
                           </ContextMenuItem>
                           {s.spec?.clusterIP && s.spec.clusterIP !== "None" && (
                             <ContextMenuItem onSelect={() => copy(s.spec.clusterIP)}>
-                              <ClipboardCopy /> Copy cluster IP
+                              <ClipboardCopy /> {tr("Copy cluster IP")}
                             </ContextMenuItem>
                           )}
                         </>

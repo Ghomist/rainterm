@@ -64,12 +64,25 @@ terminals over Streamable HTTP at `http://127.0.0.1:7323/mcp` (address and port 
 token required): list / open terminals, run commands, read output, send keys — visibly, with the same
 approval modes.
 
+**Agents** (Ctrl+Shift+A, or Sessions → Local → Agents) — a multi-agent board in its own tab. Say what
+you want done; it is planned into tasks, each handed to the best-suited agent in your pool (Claude
+Code, Codex, opencode, pi or any agent speaking ACP, locally or on a saved SSH host, plus the model
+from Settings → Agent), checked by an independent verifier, and the result comes back as a short report.
+- Scrum board: tasks move through Planning → To do → In progress → Verifying → Needs you → Done,
+  dependencies drawn between cards; click a card for its details and the agents' output
+- Code changes happen in isolated git worktrees and are merged into your branch only when you approve
+- Agents can work on your machines through rainterm's terminals and saved SSH hosts (risky commands
+  ask first); autonomy (cautious / balanced / hands-off), parallelism, daily spend limit, pause and
+  emergency stop in the Agent pool panel
+- Pool, roles and levels (lightweight → expert) are edited right in the panel; output language follows
+  the UI language or is set per board
+
 **Side panels** — an icon rail on each edge; left and right panels open side by side, both resizable.
 Right-click an icon to move it to the other side. Default: Sessions, Agent, Files, Quick commands on the left;
 Monitor, Ports, Containers, Kubernetes on the right. Ctrl+Shift+B hides both.
 
 **Quick ops** (for the active terminal's machine — this computer, or the SSH server)
-- **Resource monitor**: CPU, memory, GPU, disks, processes (end / copy / reveal)
+- **Resource monitor**: CPU, memory, GPU (NVIDIA) and NPU (Huawei Ascend, `npu-smi`), disks, processes (end / copy / reveal)
 - **Ports**: listening ports with their process; open in a browser, or **forward a remote port to this computer** in one click
 - **Containers** (docker / podman): start, stop, restart, remove, follow logs, open a shell; **images**
   with a "Run container" dialog pre-filled from how earlier containers of that image were started
@@ -90,6 +103,7 @@ Monitor, Ports, Containers, Kubernetes on the right. Ctrl+Shift+B hides both.
   light themes; or your own picture with dim / blur. Terminals become adjustable "glass" over it
 - 16 themes (Catppuccin, One Dark/Light, Nord, Dracula, Tokyo Night, Gruvbox, Solarized, GitHub…),
   dark / light / follow system; optional Mica translucency on Windows 11
+- English and 简体中文 interface, following the system language by default (Settings → Appearance)
 - Restores tabs and splits on launch, remembers window size, asks before closing live remote sessions
 - Command palette (Ctrl+Shift+P), lock screen with idle auto-lock (Ctrl+Shift+L)
 - **Backup**: export / import sessions, quick commands and settings as one JSON file (no passwords)
@@ -113,6 +127,7 @@ Monitor, Ports, Containers, Kubernetes on the right. Ctrl+Shift+B hides both.
 | Broadcast to tab | Ctrl+Shift+I |
 | Copy / paste | Ctrl+C (with selection) or Ctrl+Shift+C / Ctrl+Shift+V |
 | Lock | Ctrl+Shift+L |
+| Agents board | Ctrl+Shift+A |
 
 ## Development
 
@@ -138,12 +153,15 @@ src/                     React frontend
   lib/term-session.ts    one xterm.js instance + backend session (flow control, acks)
   lib/blocks.ts          command blocks, folding, OSC 133 handling
   store/app.ts           app state: tabs, panes, layouts, profiles, settings, session restore
+  lib/forge/             agents: ACP client, agent pool, planner / scheduler / verifier, git worktrees
+  lib/i18n.ts            UI language (English source strings, zh dictionary in i18n-zh.ts)
   components/            UI (title bar, sidebar, terminal area, file panel, dialogs…)
 src-tauri/src/           Rust backend
   session/               local PTY, SSH (russh), serial; output pump with batching + backpressure
   highlight.rs           keyword highlighting stream filter
   files.rs               local FS + SFTP, transfers, remote edit sync
   ssh_config.rs          ~/.ssh/config reader
+  proc.rs                agent processes (local or over SSH) with streamed stdio
 src-tauri/vendor/conpty  Microsoft ConPTY (conpty.dll + OpenConsole.exe, MIT) shipped on Windows
 ```
 
@@ -152,4 +170,5 @@ src-tauri/vendor/conpty  Microsoft ConPTY (conpty.dll + OpenConsole.exe, MIT) sh
 Settings, saved sessions, command history and logs live in `~/.rainterm` on every platform
 (`%USERPROFILE%\.rainterm` on Windows; override with the `RAINTERM_HOME` environment variable).
 Data from older versions (the OS config dir) is copied over on first start.
-Secrets are stored only in the OS keychain.
+The agents board keeps its goals and pool in `agents.json` and agent logs, worktrees and scratch
+folders under `agents/`. Secrets are stored only in the OS keychain.

@@ -2,6 +2,7 @@ import { Lock } from "lucide-react";
 import { AnimatePresence, motion, useAnimationControls } from "motion/react";
 import { useEffect, useState } from "react";
 import { useApp } from "@/store/app";
+import { tr } from "@/lib/i18n";
 
 export function LockScreen() {
   const locked = useApp((s) => s.locked);
@@ -38,13 +39,13 @@ export function LockScreen() {
             <div className="flex size-14 items-center justify-center rounded-2xl bg-ov/[0.07] text-foreground shadow-inner">
               <Lock className="size-6" />
             </div>
-            <div className="text-[15px] font-medium">rainterm is locked</div>
+            <div className="text-[15px] font-medium">{tr("rainterm is locked")}</div>
             <input
               autoFocus
               type="password"
               value={pw}
               onChange={(e) => setPw(e.target.value)}
-              placeholder="Password"
+              placeholder={tr("Password")}
               className="h-9 w-full rounded-lg border border-ov/10 bg-inset px-3 text-center text-[13px] outline-none transition focus:border-primary/60"
             />
           </motion.form>

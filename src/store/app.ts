@@ -27,6 +27,7 @@ import {
 import { SYSTEM_PROXY, systemProxySpec } from "@/lib/proxy-url";
 import type { Block } from "@/lib/blocks";
 import { type SessionSource, TermSession } from "@/lib/term-session";
+import { resolveLang, setLang, tr } from "@/lib/i18n";
 import { toast } from "@/lib/overlay";
 import { fmtDuration } from "@/lib/utils";
 
@@ -75,12 +76,14 @@ export interface Pane {
   id: string;
   title: string;
   subtitle: string;
-  kind: SessionSource["kind"];
+  /** "agents": the agents session (no terminal). */
+  kind: SessionSource["kind"] | "agents";
   status: TabStatus;
   error?: string;
   exitCode?: number | null;
   awaitingSecret?: boolean;
-  session: TermSession;
+  /** The terminal; null for an agents pane. */
+  session: TermSession | null;
   highlight: boolean;
   logPath: string | null;
   cwd: string | null;
@@ -123,7 +126,8 @@ type SavedSource =
   | { kind: "local"; shellId: string }
   | { kind: "ssh"; profileId: string }
   | { kind: "ssh"; target: SshTarget; title?: string; subtitle?: string }
-  | { kind: "serial"; profileId: string };
+  | { kind: "serial"; profileId: string }
+  | { kind: "agents" };
 
 type SavedLayout =
   | { type: "pane"; source: SavedSource; group: string | null }
@@ -178,6 +182,8 @@ interface AppState {
 
   init(): Promise<void>;
   openLocal(shell?: ShellSpec, opts?: { split?: "row" | "col" }): void;
+  /** Open the agents board, or bring its tab forward (there is only one). */
+  openAgents(): void;
   connect(profile: Profile, opts?: { split?: "row" | "col" }): Promise<void>;
   quickConnect(spec: string): void;
   reconnect(paneId: string): void;
@@ -225,6 +231,8 @@ interface AppState {
   /** Flush the session snapshot to disk right away (e.g. before the window closes). */
   saveSessionNow(): Promise<void>;
   set(patch: Partial<AppState>): void;
+  /** Bumped when the UI language changes: the UI re-mounts with the new strings. */
+  langKey: number;
 }
 
 let seq = 0;
@@ -279,7 +287,7 @@ export const useApp: UseBoundStore<StoreApi<AppState>> =
   };
   const applyAll = () => {
     const e = eff();
-    for (const pane of Object.values(get().panes)) pane.session.applySettings(e);
+    for (const pane of Object.values(get().panes)) pane.session?.applySettings(e);
   };
 
   const patchPane = (id: string, patch: Partial<Pane>) =>
@@ -362,20 +370,20 @@ export const useApp: UseBoundStore<StoreApi<AppState>> =
   };
   const scheduleRetry = (paneId: string) => {
     const pane = get().panes[paneId];
-    if (!pane) return;
+    if (!pane?.session) return;
     const attempt = (pane.retry?.attempt ?? 0) + 1;
     if (attempt > RETRY_MAX) {
       stopRetry(paneId);
-      pane.session.term.write("\r\n\x1b[2m── gave up reconnecting · press Enter to try again ──\x1b[0m\r\n");
+      pane.session.term.write(`\r\n\x1b[2m── ${tr("gave up reconnecting · press Enter to try again")} ──\x1b[0m\r\n`);
       return;
     }
-    if (attempt === 1) pane.session.term.write("\r\n\x1b[2m── connection lost · reconnecting… ──\x1b[0m\r\n");
+    if (attempt === 1) pane.session.term.write(`\r\n\x1b[2m── ${tr("connection lost · reconnecting…")} ──\x1b[0m\r\n`);
     const delay = Math.min(30, 2 ** attempt) * 1000;
     patchPane(paneId, { retry: { attempt, at: Date.now() + delay } });
     const fire = () => {
       retryTimers.delete(paneId);
       const p = get().panes[paneId];
-      if (!p?.retry || p.session.alive) return;
+      if (!p?.retry || !p.session || p.session.alive) return;
       if (!navigator.onLine) {
         // Offline: wait for the network instead of burning attempts.
         const back = () => fire();
@@ -390,7 +398,7 @@ export const useApp: UseBoundStore<StoreApi<AppState>> =
 
   const handleEvent = (paneId: string) => (ev: SessionEvent) => {
     const pane = get().panes[paneId];
-    if (!pane) return;
+    if (!pane?.session) return;
     if (ev.type === "hostKeyPrompt" || ev.type === "secretRequired") stopRetry(paneId); // needs you
     switch (ev.type) {
       case "connecting":
@@ -400,7 +408,7 @@ export const useApp: UseBoundStore<StoreApi<AppState>> =
         live.add(paneId);
         if (pane.retry) {
           stopRetry(paneId);
-          pane.session.term.write("\x1b[2m── reconnected ──\x1b[0m\r\n");
+          pane.session.term.write(`\x1b[2m── ${tr("reconnected")} ──\x1b[0m\r\n`);
         }
         patchPane(paneId, { status: "connected", error: undefined, awaitingSecret: false });
         if (get().settings.autoLog && !pane.logPath) void get().toggleLog(paneId);
@@ -450,7 +458,7 @@ export const useApp: UseBoundStore<StoreApi<AppState>> =
           scheduleRetry(paneId);
         dropPrompts(paneId);
         if (p?.logPath) {
-          p.session.setLogging(false);
+          p.session?.setLogging(false);
           patchPane(paneId, { logPath: null });
         }
         break;
@@ -485,11 +493,25 @@ export const useApp: UseBoundStore<StoreApi<AppState>> =
     };
   };
 
+  /** The agents session: a pane without a terminal (see components/AgentsView). */
+  const makeAgentsPane = (): Pane => ({
+    id: uid("p"),
+    title: tr("Agents"),
+    subtitle: "agents",
+    kind: "agents",
+    status: "connected",
+    session: null,
+    highlight: false,
+    logPath: null,
+    cwd: null,
+    group: null,
+  });
+
   /** Put a pane in a new tab, or split the active pane with it. */
   const place = (pane: Pane, split?: "row" | "col") => {
     const s = get();
     const tab = s.tabs.find((t) => t.id === s.activeTabId);
-    if (split && tab) {
+    if (split && tab && pane.session && s.panes[tab.activePane]?.session) {
       const node: Layout = {
         type: "split",
         id: uid("s"),
@@ -535,7 +557,7 @@ export const useApp: UseBoundStore<StoreApi<AppState>> =
       const tabIds = layoutPanes(tab.layout);
       for (const id of tabIds) {
         const pane = panes[id];
-        if (!pane) continue;
+        if (!pane?.session) continue;
         const targets = new Set<string>();
         if (broadcast === "tab") for (const x of tabIds) targets.add(x);
         if (broadcast === "all") for (const x of all) targets.add(x);
@@ -544,7 +566,7 @@ export const useApp: UseBoundStore<StoreApi<AppState>> =
         pane.session.inputHook =
           targets.size > 0
             ? (data) => {
-                for (const other of targets) get().panes[other]?.session.input(data);
+                for (const other of targets) get().panes[other]?.session?.input(data);
               }
             : null;
       }
@@ -608,6 +630,7 @@ export const useApp: UseBoundStore<StoreApi<AppState>> =
   // ---------------------------------------------------------------- session restore
 
   const saveSource = (pane: Pane): SavedSource | null => {
+    if (!pane.session) return { kind: "agents" };
     const src = pane.session.source;
     if (src.kind === "local") return { kind: "local", shellId: src.shell.id };
     if (src.kind === "serial") return pane.profileId ? { kind: "serial", profileId: pane.profileId } : null;
@@ -643,6 +666,7 @@ export const useApp: UseBoundStore<StoreApi<AppState>> =
 
   const restorePane = async (src: SavedSource): Promise<Pane | null> => {
     const { shells, profiles } = get();
+    if (src.kind === "agents") return makeAgentsPane();
     if (src.kind === "local") {
       const sh = shells.find((x) => x.id === src.shellId) ?? shells[0];
       return sh ? makePane({ kind: "local", shell: sh }, sh.name, "local") : null;
@@ -728,6 +752,7 @@ export const useApp: UseBoundStore<StoreApi<AppState>> =
     settings: DEFAULT_SETTINGS,
     systemDark: window.matchMedia("(prefers-color-scheme: dark)").matches,
     shells: [],
+    langKey: 0,
     profiles: [],
     panes: {},
     tabs: [],
@@ -766,7 +791,9 @@ export const useApp: UseBoundStore<StoreApi<AppState>> =
       if (![0, 150, 300, 500, 800, 1000].includes(merged.tabHoverSwitchMs)) merged.tabHoverSwitchMs = 300;
       // Older configs only had `theme`.
       if (settings && !("darkTheme" in settings) && settings.theme) merged.darkTheme = settings.theme;
+      const langChanged = setLang(resolveLang(merged.language));
       set({
+        ...(langChanged ? { langKey: get().langKey + 1 } : {}),
         shells,
         profiles: (profiles ?? []).map(migrateProfile),
         settings: merged,
@@ -788,6 +815,18 @@ export const useApp: UseBoundStore<StoreApi<AppState>> =
       const sh = shell ?? shells.find((s) => s.id === settings.defaultShell) ?? shells[0];
       if (!sh) return;
       place(makePane({ kind: "local", shell: sh }, sh.name, "local"), opts?.split);
+    },
+
+    openAgents() {
+      // a single agents board: opening it again brings that tab forward
+      const existing = Object.values(get().panes).find((p) => p.kind === "agents");
+      const tab = existing && tabOfPane(existing.id);
+      if (existing && tab) {
+        get().setActiveTab(tab.id);
+        get().focusPane(existing.id);
+        return;
+      }
+      place(makeAgentsPane());
     },
 
     async connect(profile, opts) {
@@ -820,9 +859,9 @@ export const useApp: UseBoundStore<StoreApi<AppState>> =
 
     reconnect(paneId) {
       const pane = get().panes[paneId];
-      if (!pane || pane.session.alive) return;
+      if (!pane?.session || pane.session.alive) return;
       stopRetry(paneId);
-      pane.session.term.write("\r\n\x1b[2m── reconnecting ──\x1b[0m\r\n");
+      pane.session.term.write(`\r\n\x1b[2m── ${tr("reconnecting")} ──\x1b[0m\r\n`);
       patchPane(paneId, {
         status: "connecting",
         error: undefined,
@@ -841,6 +880,7 @@ export const useApp: UseBoundStore<StoreApi<AppState>> =
       const tab = s.tabs.find((t) => t.id === s.activeTabId);
       const pane = tab && s.panes[tab.activePane];
       if (!pane) return get().openLocal();
+      if (!pane.session) return; // the agents board fills its tab
       const src = pane.session.source;
       if (src.kind === "local") return get().openLocal(src.shell, { split: dir });
       if (src.kind === "ssh") {
@@ -854,11 +894,11 @@ export const useApp: UseBoundStore<StoreApi<AppState>> =
       const s = get();
       const tab = tabOfPane(paneId);
       const closing = s.panes[paneId];
-      const sid = closing?.session.sessionId;
+      const sid = closing?.session?.sessionId;
       stopRetry(paneId);
       live.delete(paneId);
       if (closing?.kind === "ssh" && sid) void ipc.monitorForget(sid).catch(() => {});
-      closing?.session.dispose();
+      closing?.session?.dispose();
       const panes = { ...s.panes };
       delete panes[paneId];
       if (!tab) return set({ panes });
@@ -928,7 +968,7 @@ export const useApp: UseBoundStore<StoreApi<AppState>> =
     answerHostKey(accept) {
       const p = get().hostKeyPrompt;
       if (!p) return;
-      get().panes[p.paneId]?.session.replyHostKey(accept);
+      get().panes[p.paneId]?.session?.replyHostKey(accept);
       set({ hostKeyPrompt: null });
       setTimeout(nextPrompts, 180); // let the closing animation play
     },
@@ -939,7 +979,7 @@ export const useApp: UseBoundStore<StoreApi<AppState>> =
       set({ secretPrompt: null });
       setTimeout(nextPrompts, 180);
       const pane = get().panes[prompt.paneId];
-      if (!pane) return;
+      if (!pane?.session) return;
       const src = pane.session.source;
       if (secret === null || src.kind !== "ssh") {
         patchPane(pane.id, { status: "exited", awaitingSecret: false, exitCode: null });
@@ -963,15 +1003,15 @@ export const useApp: UseBoundStore<StoreApi<AppState>> =
 
     toggleHighlight(paneId) {
       const pane = get().panes[paneId];
-      if (!pane) return;
+      if (!pane?.session) return;
       pane.session.setHighlight(!pane.highlight);
       patchPane(paneId, { highlight: !pane.highlight });
     },
 
     async toggleLog(paneId) {
       const pane = get().panes[paneId];
-      const id = pane?.session.sessionId;
-      if (!pane || !id) return;
+      const id = pane?.session?.sessionId;
+      if (!pane?.session || !id) return;
       const stopping = !!pane.logPath;
       if (stopping) pane.session.setLogging(false);
       const path = await ipc.sessionLog(id, stopping ? null : pane.title).catch(() => null);
@@ -1020,6 +1060,7 @@ export const useApp: UseBoundStore<StoreApi<AppState>> =
       const pane = tab && s.panes[tab.activePane];
       if (!pane) return;
       set({ activeTabId: tabId });
+      if (!pane.session) return; // there is only one agents board
       const src = pane.session.source;
       if (src.kind === "local") get().openLocal(src.shell);
       else if (src.kind === "ssh") place(makePane({ ...src }, pane.title, pane.subtitle, pane.profileId));
@@ -1117,7 +1158,8 @@ export const useApp: UseBoundStore<StoreApi<AppState>> =
 
     async updateSettings(patch) {
       const settings = { ...get().settings, ...patch };
-      set({ settings });
+      const langChanged = "language" in patch && setLang(resolveLang(settings.language));
+      set(langChanged ? { settings, langKey: get().langKey + 1 } : { settings });
       applyAll();
       if ("highlightRules" in patch) await applyRules(settings).catch(() => {});
       await ipc.storeSave("settings", settings);
@@ -1201,10 +1243,16 @@ export function isViewOpen(s: Pick<AppState, "settings" | "panelsHidden">, id: V
   return (s.settings.dock.left.includes(id) ? s.settings.leftView : s.settings.rightView) === id;
 }
 
+/** A pane with a terminal (every kind but the agents session). */
+export type TermPane = Pane & { session: TermSession };
+export const isTermPane = (p: Pane | null | undefined): p is TermPane => !!p?.session;
+
+/** The active pane when it's a terminal (side panels act on it), else null. */
 export const useActivePane = () =>
   useApp((s) => {
     const tab = s.tabs.find((t) => t.id === s.activeTabId);
-    return tab ? (s.panes[tab.activePane] ?? null) : null;
+    const p = tab ? s.panes[tab.activePane] : null;
+    return isTermPane(p) ? p : null;
   });
 
 // Dev-only handle for debugging / automated checks over CDP.

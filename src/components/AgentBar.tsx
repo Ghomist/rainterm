@@ -6,6 +6,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { type AgentThread, useAgent } from "@/lib/agent/agent";
 import { cn } from "@/lib/utils";
 import { type Pane, useApp } from "@/store/app";
+import { tr } from "@/lib/i18n";
 
 export function AgentBar({ pane }: { pane: Pane }) {
   const t = useAgent((s) => s.threads[pane.id]) as AgentThread | undefined;
@@ -32,7 +33,7 @@ export function AgentBar({ pane }: { pane: Pane }) {
             className="press absolute right-4 bottom-3 z-20 flex items-center gap-1.5 rounded-full border border-primary/30 bg-popover px-2.5 py-1 text-[11.5px] text-foreground shadow-lg shadow-shadow"
           >
             <Sparkles className={cn("size-3.5 text-primary", busy && "animate-pulse")} />
-            {t.status === "approval" ? "Waiting for your OK" : busy ? t.activity || "Working…" : "Agent finished — view"}
+            {t.status === "approval" ? tr("Waiting for your OK") : busy ? t.activity || tr("Working…") : tr("Agent finished — view")}
           </motion.button>
         )}
       </AnimatePresence>

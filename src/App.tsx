@@ -8,6 +8,7 @@ import { LockScreen } from "@/components/LockScreen";
 import { Overlays } from "@/components/Overlays";
 import { SnippetVarsDialog } from "@/components/SnippetVars";
 import { SshKeyDialogs } from "@/components/SshKeys";
+import { AgentsSettingsDialog } from "@/components/AgentsSettings";
 import { SettingsDialog } from "@/components/SettingsDialog";
 import { StatusBar } from "@/components/StatusBar";
 import { TerminalArea } from "@/components/TerminalArea";
@@ -22,6 +23,7 @@ import { machineKey, pollMachine } from "@/lib/monitor";
 import { confirm } from "@/lib/overlay";
 import { themeById } from "@/lib/term-theme";
 import { isViewOpen, useApp, useThemeId } from "@/store/app";
+import { resolveLang, setLang, tr } from "@/lib/i18n";
 
 export default function App() {
   const init = useApp((s) => s.init);
@@ -88,16 +90,24 @@ export default function App() {
     const un = win.onCloseRequested(async (e) => {
       const s = useApp.getState();
       await s.saveSessionNow();
-      const live = Object.values(s.panes).filter((p) => p.kind !== "local" && p.session.alive);
+      const live = Object.values(s.panes).filter((p) => p.kind !== "local" && p.session?.alive);
       if (!s.settings.confirmClose || !live.length) return;
       e.preventDefault();
       const ok = await confirm({
-        title: `Close rainterm?`,
-        message: `${live.length} remote session${live.length > 1 ? "s are" : " is"} still connected (${live
-          .slice(0, 3)
-          .map((p) => p.title)
-          .join(", ")}${live.length > 3 ? "…" : ""}). Closing will disconnect ${live.length > 1 ? "them" : "it"}.`,
-        confirmLabel: "Close",
+        title: tr("Close rainterm?"),
+        message: tr(
+          live.length > 1
+            ? "{n} remote sessions are still connected ({names}). Closing will disconnect them."
+            : "{n} remote session is still connected ({names}). Closing will disconnect it.",
+          {
+            n: live.length,
+            names: `${live
+              .slice(0, 3)
+              .map((p) => p.title)
+              .join(", ")}${live.length > 3 ? "…" : ""}`,
+          },
+        ),
+        confirmLabel: tr("Close"),
         danger: true,
       });
       if (ok) await win.destroy();
@@ -113,9 +123,21 @@ export default function App() {
     return () => window.removeEventListener("contextmenu", block);
   }, []);
 
+  // Language: re-mount the UI with the new strings (terminal sessions live outside React
+  // and simply re-attach). "Follow system" also follows the OS changing its language.
+  const langKey = useApp((s) => s.langKey);
+  useEffect(() => {
+    const on = () => {
+      const s = useApp.getState();
+      if (s.settings.language === "system" && setLang(resolveLang("system"))) s.set({ langKey: s.langKey + 1 });
+    };
+    window.addEventListener("languagechange", on);
+    return () => window.removeEventListener("languagechange", on);
+  }, []);
+
   return (
     <MotionConfig reducedMotion={reduce ? "always" : "user"}>
-      <TooltipProvider>
+      <TooltipProvider key={langKey}>
         <div className="flex h-full flex-col bg-chrome">
           <TitleBar />
           <div className="flex min-h-0 flex-1">
@@ -132,6 +154,7 @@ export default function App() {
         <Overlays />
         <SnippetVarsDialog />
         <SshKeyDialogs />
+        <AgentsSettingsDialog />
         <LockScreen />
       </TooltipProvider>
     </MotionConfig>
@@ -169,6 +192,7 @@ function runAction(action: string, pane: ReturnType<typeof useApp.getState>["pan
   }
   switch (action) {
     case "newTab": return s.openLocal();
+    case "openAgents": return s.openAgents();
     case "closePane": return pane && s.closePane(pane.id);
     case "nextTab": return s.cycleTab(1);
     case "prevTab": return s.cycleTab(-1);
@@ -196,7 +220,7 @@ function runAction(action: string, pane: ReturnType<typeof useApp.getState>["pan
     case "broadcast": return s.toggleBroadcast();
     case "agent": {
       if (document.activeElement?.id === AGENT_INPUT_ID) {
-        pane?.session.focus();
+        pane?.session?.focus();
         return;
       }
       s.toggleView("agent", true);
@@ -209,8 +233,8 @@ function runAction(action: string, pane: ReturnType<typeof useApp.getState>["pan
       focus(10);
       return;
     }
-    case "foldAll": return pane?.session.blocks.foldAll();
-    case "unfoldAll": return pane?.session.blocks.unfoldAll();
+    case "foldAll": return pane?.session?.blocks.foldAll();
+    case "unfoldAll": return pane?.session?.blocks.unfoldAll();
     case "newSsh": return s.set({ profileEditor: { kind: "ssh" } });
     case "lock": return s.lock();
   }
@@ -242,8 +266,8 @@ function Pollers() {
   useMcpServer();
   const sshIds = useApp((s) =>
     Object.values(s.panes)
-      .filter((p) => p.kind === "ssh" && p.status === "connected" && p.session.sessionId)
-      .map((p) => p.session.sessionId)
+      .filter((p) => p.kind === "ssh" && p.status === "connected" && p.session?.sessionId)
+      .map((p) => p.session?.sessionId)
       .join(","),
   );
   useLatencyPolling(sshIds ? sshIds.split(",") : []);
@@ -253,7 +277,7 @@ function Pollers() {
   const machine = useApp((s) => {
     const tab = s.tabs.find((t) => t.id === s.activeTabId);
     const pane = tab ? s.panes[tab.activePane] : null;
-    const key = pane ? machineKey(pane.kind, pane.status === "connected" ? pane.session.sessionId : null) : null;
+    const key = pane ? machineKey(pane.kind, pane.status === "connected" ? (pane.session?.sessionId ?? null) : null) : null;
     return key && key !== "local" && !s.settings.monitorRemote ? null : key;
   });
   useEffect(() => {

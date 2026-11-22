@@ -7,6 +7,7 @@ import { confirm, toast } from "@/lib/overlay";
 import type { Settings } from "@/lib/settings";
 import { type Snippet, useSnippets } from "@/lib/snippets";
 import { type Profile, useApp } from "@/store/app";
+import { tr } from "@/lib/i18n";
 
 interface Backup {
   app: "rainterm";
@@ -51,7 +52,7 @@ async function exportBackup() {
   const { save } = await import("@tauri-apps/plugin-dialog");
   const day = new Date().toISOString().slice(0, 10);
   const path = await save({
-    title: "Export rainterm settings",
+    title: tr("Export rainterm settings"),
     defaultPath: `rainterm-backup-${day}.json`,
     filters: [{ name: "JSON", extensions: ["json"] }],
   });
@@ -60,24 +61,24 @@ async function exportBackup() {
     await ipc.textFileWrite(path, JSON.stringify(data, null, 2));
     toast({
       kind: "success",
-      title: "Exported",
-      description: `${data.profiles.length} sessions, ${data.snippets.length} quick commands and your settings`,
+      title: tr("Exported"),
+      description: tr("{0} sessions, {1} quick commands and your settings", { 0: data.profiles.length, 1: data.snippets.length }),
     });
   } catch (e) {
-    toast({ kind: "error", title: "Export failed", description: String(e) });
+    toast({ kind: "error", title: tr("Export failed"), description: String(e) });
   }
 }
 
 async function importBackup() {
   const { open } = await import("@tauri-apps/plugin-dialog");
-  const path = await open({ title: "Import rainterm settings", filters: [{ name: "JSON", extensions: ["json"] }] });
+  const path = await open({ title: tr("Import rainterm settings"), filters: [{ name: "JSON", extensions: ["json"] }] });
   if (!path || Array.isArray(path)) return;
   let data: Backup;
   try {
     data = JSON.parse(await ipc.textFileRead(path));
     if (data?.app !== "rainterm" || !Array.isArray(data.profiles)) throw new Error("not a rainterm backup");
   } catch (e) {
-    toast({ kind: "error", title: "Can't import this file", description: String(e) });
+    toast({ kind: "error", title: tr("Can't import this file"), description: String(e) });
     return;
   }
   const st = useApp.getState();
@@ -85,12 +86,12 @@ async function importBackup() {
   const newProfiles = data.profiles.filter((p) => !ids.has(p.id)).length;
   const snippets = Array.isArray(data.snippets) ? data.snippets : [];
   const ok = await confirm({
-    title: "Import this backup?",
-    message:
-      `${data.profiles.length} sessions (${newProfiles} new, the rest replace the ones with the same id), ` +
-      `${snippets.length} quick commands, and the settings in it. ` +
-      "Passwords aren't in backups — you'll be asked again when you connect.",
-    confirmLabel: "Import",
+    title: tr("Import this backup?"),
+    message: tr(
+      "{0} sessions ({1} new, the rest replace the ones with the same id), {2} quick commands, and the settings in it. Passwords aren't in backups — you'll be asked again when you connect.",
+      { 0: data.profiles.length, 1: newProfiles, 2: snippets.length },
+    ),
+    confirmLabel: tr("Import"),
   });
   if (!ok) return;
   const settings: Partial<Settings> = { ...(data.settings ?? {}) };
@@ -100,23 +101,22 @@ async function importBackup() {
   for (const p of data.profiles) await useApp.getState().saveProfile(p);
   await useSnippets.getState().load();
   for (const s of snippets) await useSnippets.getState().save(s);
-  toast({ kind: "success", title: "Imported", description: `${data.profiles.length} sessions, ${snippets.length} quick commands` });
+  toast({ kind: "success", title: tr("Imported"), description: tr("{0} sessions, {1} quick commands", { 0: data.profiles.length, 1: snippets.length }) });
 }
 
 export function BackupSection() {
   return (
     <div className="grid gap-2">
-      <span className="text-[12px] font-medium text-foreground/90">Backup</span>
+      <span className="text-[12px] font-medium text-foreground/90">{tr("Backup")}</span>
       <p className="text-[12px] text-muted-foreground">
-        Sessions, quick commands and settings in one file — to set up another computer, or keep a copy.
-        Passwords and the lock password stay in this computer's keychain and are never included.
+        {tr("Sessions, quick commands and settings in one file — to set up another computer, or keep a copy. Passwords and the lock password stay in this computer's keychain and are never included.")}
       </p>
       <div className="flex gap-2">
         <Button variant="outline" size="sm" onClick={() => void exportBackup()}>
-          <Download className="size-3.5" /> Export…
+          <Download className="size-3.5" /> {tr("Export…")}
         </Button>
         <Button variant="outline" size="sm" onClick={() => void importBackup()}>
-          <Upload className="size-3.5" /> Import…
+          <Upload className="size-3.5" /> {tr("Import…")}
         </Button>
       </div>
     </div>

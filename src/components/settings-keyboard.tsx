@@ -8,6 +8,7 @@ import { ACTIONS, bindingsOf, comboFromEvent, conflictOf, isUsableCombo, keycaps
 import { toast } from "@/lib/overlay";
 import { useApp } from "@/store/app";
 import { Field } from "./dialogs";
+import { tr } from "@/lib/i18n";
 
 const pretty = (combo: string) => keycaps(combo).join(" ");
 
@@ -52,7 +53,7 @@ export function KeyboardSection() {
       const other = conflictOf(s, combo, rec.id);
       const also = other ? { [other.id]: bindingsOf(s, other.id).filter((k) => k !== combo) } : undefined;
       setKeys(rec.id, [...new Set(keys)], also);
-      if (other) toast({ kind: "info", title: `${pretty(combo)} was moved here from “${other.label}”` });
+      if (other) toast({ kind: "info", title: tr("{0} was moved here from “{1}”", { 0: pretty(combo), 1: tr(other.label) }) });
       setRec(null);
     };
     window.addEventListener("keydown", onKey, { capture: true });
@@ -70,10 +71,10 @@ export function KeyboardSection() {
     <>
       <div className="flex items-center gap-2">
         <div className="flex-1">
-          <SearchField value={query} onChange={setQuery} placeholder="Search shortcuts" />
+          <SearchField value={query} onChange={setQuery} placeholder={tr("Search shortcuts")} />
         </div>
         <Button variant="ghost" size="sm" disabled={!customized} onClick={() => void update({ keybindings: {} })}>
-          <RotateCcw /> Reset all
+          <RotateCcw /> {tr("Reset all")}
         </Button>
       </div>
       {groups.map((g) => {
@@ -81,12 +82,12 @@ export function KeyboardSection() {
           (a) =>
             a.group === g &&
             (!q ||
-              a.label.toLowerCase().includes(q) ||
+              (a.label.toLowerCase().includes(q) || tr(a.label).toLowerCase().includes(q)) ||
               bindingsOf(s, a.id).some((k) => pretty(k).toLowerCase().includes(q))),
         );
         if (!actions.length) return null;
         return (
-          <Field key={g} label={g}>
+          <Field key={g} label={tr(g)}>
             <div className="divide-y divide-ov/[0.05] overflow-hidden rounded-lg border border-ov/[0.07] bg-ov/[0.015]">
               {actions.map((a) => {
                 const keys = bindingsOf(s, a.id);
@@ -96,9 +97,9 @@ export function KeyboardSection() {
                   <div key={a.id} className="group/k">
                     <div className="flex min-h-9 items-center gap-3 py-1 pr-2.5 pl-3 transition-colors hover:bg-ov/[0.025]">
                       <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[12.5px] text-foreground/90">
-                        <span className="truncate">{a.label}</span>
+                        <span className="truncate">{tr(a.label)}</span>
                         {custom && (
-                          <Tooltip content="Changed from the default">
+                          <Tooltip content={tr("Changed from the default")}>
                             <span className="size-1.5 shrink-0 rounded-full bg-primary" />
                           </Tooltip>
                         )}
@@ -108,7 +109,7 @@ export function KeyboardSection() {
                       <div className="flex flex-wrap items-center justify-end gap-1.5">
                         <span className="hidden items-center gap-0.5 group-hover/k:flex">
                           {custom && (
-                            <Tooltip content="Reset to default">
+                            <Tooltip content={tr("Reset to default")}>
                               <button
                                 type="button"
                                 onClick={() => setKeys(a.id, a.keys)}
@@ -118,7 +119,7 @@ export function KeyboardSection() {
                               </button>
                             </Tooltip>
                           )}
-                          <Tooltip content="Add another shortcut">
+                          <Tooltip content={tr("Add another shortcut")}>
                             <button
                               type="button"
                               onClick={() => setRec({ id: a.id, index: keys.length })}
@@ -141,7 +142,7 @@ export function KeyboardSection() {
                           ),
                         )}
                         {here && here.index >= keys.length && <RecordingChip />}
-                        {!keys.length && !here && <span className="text-[11.5px] text-muted-foreground/60">Unbound</span>}
+                        {!keys.length && !here && <span className="text-[11.5px] text-muted-foreground/60">{tr("Unbound")}</span>}
                       </div>
                     </div>
                     {error?.id === a.id && <div className="px-3 pb-1.5 text-[11.5px] text-destructive">{error.text}</div>}
@@ -153,8 +154,7 @@ export function KeyboardSection() {
         );
       })}
       <p className="text-[11.5px] leading-relaxed text-muted-foreground">
-        Click a shortcut to change it and press the new keys (Esc cancels). A combo used by another action moves
-        here. Keys that aren&apos;t app shortcuts go to the shell.
+        {tr("Click a shortcut to change it and press the new keys (Esc cancels). A combo used by another action moves here. Keys that aren&apos;t app shortcuts go to the shell.")}
       </p>
     </>
   );
@@ -164,7 +164,7 @@ function KeyChip({ combo, onEdit, onRemove }: { combo: string; onEdit: () => voi
   const keys = keycaps(combo);
   return (
     <span className="group/c relative inline-flex">
-      <Tooltip content="Click to change">
+      <Tooltip content={tr("Click to change")}>
         <button
           type="button"
           onClick={onEdit}
@@ -180,7 +180,7 @@ function KeyChip({ combo, onEdit, onRemove }: { combo: string; onEdit: () => voi
       </Tooltip>
       <button
         type="button"
-        aria-label="Remove shortcut"
+        aria-label={tr("Remove shortcut")}
         onClick={onRemove}
         className="absolute -top-1.5 -right-1.5 hidden size-3.5 items-center justify-center rounded-full bg-muted-foreground text-[10px] leading-none text-background group-hover/c:flex hover:bg-destructive"
       >
@@ -194,7 +194,7 @@ function RecordingChip() {
   return (
     <span className="inline-flex h-6 items-center rounded-md border border-primary/50 bg-primary/10 px-2 text-[11px] text-primary">
       <motion.span animate={{ opacity: [1, 0.45, 1] }} transition={{ duration: 1.2, repeat: Number.POSITIVE_INFINITY }}>
-        Press keys…
+        {tr("Press keys…")}
       </motion.span>
     </span>
   );

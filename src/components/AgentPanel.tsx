@@ -32,6 +32,7 @@ import {
 import type { AgentAutonomy } from "@/lib/settings";
 import { cn } from "@/lib/utils";
 import { type Pane, useActivePane, useApp } from "@/store/app";
+import { tr } from "@/lib/i18n";
 
 const MODES: { id: AgentAutonomy; label: string; tip: string; icon: React.ReactNode }[] = [
   { id: "suggest", label: "Suggest", tip: "Only types commands at the prompt — you press Enter", icon: <Keyboard /> },
@@ -58,9 +59,9 @@ export function AgentPanel() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <PanelHeader title="Agent" icon={<Sparkles />}>
+      <PanelHeader title={tr("Agent")} icon={<Sparkles />}>
         <IconButton
-          tip="New conversation"
+          tip={tr("New conversation")}
           onClick={() => pane && resetThread(pane.id)}
           disabled={!pane || !t?.steps.length || (t.status !== "idle" && t.status !== "error")}
         >
@@ -71,13 +72,13 @@ export function AgentPanel() {
         <div className="flex items-center gap-1.5 px-3 pb-2 text-[11.5px] text-muted-foreground [&_svg]:size-3.5">
           <SquareTerminal className="shrink-0" />
           <span className="truncate">
-            Working in <span className="text-foreground/85">{pane.title}</span>
+            {tr("Working in")}{" "}<span className="text-foreground/85">{pane.title}</span>
             {pane.kind === "ssh" && <span className="opacity-70"> · {pane.subtitle}</span>}
           </span>
         </div>
       )}
       {!pane ? (
-        <Empty text="Open a terminal — the agent works in the one you're on." />
+        <Empty text={tr("Open a terminal — the agent works in the one you're on.")} />
       ) : (
         <Conversation key={pane.id} pane={pane} t={t} configured={configured} openSettings={() => set({ settingsOpen: true })} />
       )}
@@ -154,7 +155,7 @@ function Conversation({
       if (t?.approval) answerApproval(pane.id, false);
       else if (busy) stopAgent(pane.id, "Stopped.");
       else if (text) setText("");
-      else pane.session.focus();
+      else pane.session?.focus();
     }
   };
 
@@ -169,19 +170,19 @@ function Conversation({
         className="min-h-0 flex-1 space-y-2.5 overflow-y-auto px-3 pb-3 text-[12.5px] leading-relaxed"
       >
         {!configured ? (
-          <Empty text="Set up a model first (OpenAI-compatible or Anthropic API).">
+          <Empty text={tr("Set up a model first (OpenAI-compatible or Anthropic API).")}>
             <button
               type="button"
               onClick={openSettings}
               className="press rounded-md border border-ov/10 px-2.5 py-1 text-foreground/90 hover:bg-ov/[0.05]"
             >
-              Settings → Agent
+              {tr("Settings → Agent")}
             </button>
           </Empty>
         ) : steps.length === 0 ? (
-          <Empty text="Ask about this terminal, or tell it what to do. It sees what's on screen and runs commands here — you watch, and typing in the terminal stops it.">
+          <Empty text={tr("Ask about this terminal, or tell it what to do. It sees what's on screen and runs commands here — you watch, and typing in the terminal stops it.")}>
             <span className="text-[11px] opacity-70">
-              <kbd className="rounded border border-border bg-ov/5 px-1">Ctrl+I</kbd> jumps here and back
+              <kbd className="rounded border border-border bg-ov/5 px-1">{tr("Ctrl+I")}</kbd> {tr("jumps here and back")}
             </span>
           </Empty>
         ) : (
@@ -207,12 +208,12 @@ function Conversation({
             onKeyDown={onKey}
             placeholder={
               t?.approval
-                ? "Enter to run · Esc to skip · or say why not"
+                ? tr("Enter to run · Esc to skip · or say why not")
                 : busy
-                  ? `${t?.activity || "Working…"} (Esc to stop)`
+                  ? tr("{0} (Esc to stop)", { 0: t?.activity || "Working…" })
                   : steps.length
-                    ? "Follow up…"
-                    : "Ask or tell it what to do…"
+                    ? tr("Follow up…")
+                    : tr("Ask or tell it what to do…")
             }
             className="block w-full resize-none bg-transparent px-2.5 pt-2 pb-1 text-[12.5px] leading-snug outline-none placeholder:text-muted-foreground/60"
           />
@@ -225,11 +226,11 @@ function Conversation({
                   {t?.activity}
                 </span>
               ) : t?.tokens.input ? (
-                `${fmtK(t.tokens.input)} in · ${fmtK(t.tokens.output)} out`
+                tr("{0} in · {1} out", { 0: fmtK(t.tokens.input), 1: fmtK(t.tokens.output) })
               ) : null}
             </span>
             {busy ? (
-              <Tooltip content="Stop (Esc)" side="top">
+              <Tooltip content={tr("Stop (Esc)")} side="top">
                 <button
                   type="button"
                   onClick={() => stopAgent(pane.id, "Stopped.")}
@@ -239,7 +240,7 @@ function Conversation({
                 </button>
               </Tooltip>
             ) : (
-              <Tooltip content="Send (Enter)" side="top">
+              <Tooltip content={tr("Send (Enter)")} side="top">
                 <button
                   type="button"
                   disabled={!text.trim() || !configured}
@@ -263,7 +264,7 @@ function ModePicker({ paneId, value }: { paneId: string; value: AgentAutonomy })
   const i = Math.max(0, MODES.findIndex((m) => m.id === value));
   const m = MODES[i];
   return (
-    <Tooltip content={`${m.label}: ${m.tip} — click to switch`} side="top">
+    <Tooltip content={tr("{0}: {1} — click to switch", { 0: tr(m.label), 1: tr(m.tip) })} side="top">
       <button
         type="button"
         onClick={() => setAutonomy(paneId, MODES[(i + 1) % MODES.length].id)}
@@ -273,7 +274,7 @@ function ModePicker({ paneId, value }: { paneId: string; value: AgentAutonomy })
         )}
       >
         {m.icon}
-        {m.label}
+        {tr(m.label)}
       </button>
     </Tooltip>
   );
@@ -301,7 +302,7 @@ function StepView({ s, pane, approving }: { s: Step; pane: Pane; approving: bool
             className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground hover:text-foreground"
           >
             <Brain className={cn("size-3.5", s.live && "text-primary")} />
-            {s.live ? <span className="shimmer">Thinking…</span> : `Thought for ${Math.max(1, Math.round(s.ms / 1000))}s`}
+            {s.live ? <span className="shimmer">{tr("Thinking…")}</span> : tr("Thought for {0}s", { 0: Math.max(1, Math.round(s.ms / 1000)) })}
             {!s.live && s.text && <ChevronRight className={cn("size-3 transition-transform", open && "rotate-90")} />}
           </button>
           {open && s.text && (
@@ -344,27 +345,27 @@ function StepView({ s, pane, approving }: { s: Step; pane: Pane; approving: bool
                 s.state === "declined" && "line-through opacity-60",
               )}
             >
-              {s.tool === "read_terminal" ? `read terminal (${s.label})` : s.tool === "send_keys" ? `keys: ${s.label}` : s.label}
+              {s.tool === "read_terminal" ? tr("read terminal ({0})", { 0: s.label }) : s.tool === "send_keys" ? tr("keys: {0}", { 0: s.label }) : s.label}
             </code>
-            {s.exitCode != null && s.exitCode !== 0 && <span className="shrink-0 font-mono text-[10.5px] text-destructive">exit {s.exitCode}</span>}
+            {s.exitCode != null && s.exitCode !== 0 && <span className="shrink-0 font-mono text-[10.5px] text-destructive">{tr("exit")}{" "}{s.exitCode}</span>}
             {s.result && <ChevronRight className={cn("size-3 shrink-0 text-muted-foreground transition-transform", open && "rotate-90")} />}
           </button>
           {approving && (
             <div className="flex items-center gap-1.5 border-t border-warning/20 px-2 py-1.5">
-              <span className="flex-1 text-[11px] text-muted-foreground">Run this in the terminal?</span>
+              <span className="flex-1 text-[11px] text-muted-foreground">{tr("Run this in the terminal?")}</span>
               <button
                 type="button"
                 onClick={() => answerApproval(pane.id, true)}
                 className="press rounded-md bg-primary px-2 py-0.5 text-[11.5px] font-medium text-primary-foreground"
               >
-                Run ⏎
+                {tr("Run ⏎")}
               </button>
               <button
                 type="button"
                 onClick={() => answerApproval(pane.id, false)}
                 className="press rounded-md px-2 py-0.5 text-[11.5px] text-muted-foreground hover:bg-ov/[0.06] hover:text-foreground"
               >
-                Skip
+                {tr("Skip")}
               </button>
             </div>
           )}
@@ -385,7 +386,7 @@ function StepView({ s, pane, approving }: { s: Step; pane: Pane; approving: bool
 
 // ------------------------------------------------------------------ markdown (small)
 
-function Markdown({ text, pane }: { text: string; pane: Pane }) {
+export function Markdown({ text, pane }: { text: string; pane?: Pane }) {
   const parts = text.split(/^```[^\n]*\n([\s\S]*?)(?:^```\s*$|$(?![\s\S]))/m);
   return (
     <div className="space-y-1.5">
@@ -464,22 +465,22 @@ function inline(s: string): React.ReactNode[] {
   );
 }
 
-function CodeBlock({ code, pane }: { code: string; pane: Pane }) {
-  const oneLine = !code.includes("\n");
+function CodeBlock({ code, pane }: { code: string; pane?: Pane }) {
+  const oneLine = !code.includes("\n") && !!pane?.session;
   return (
     <div className="group relative">
       <pre className="overflow-x-auto rounded-md bg-inset px-2.5 py-1.5 font-mono text-[11.5px] leading-relaxed text-foreground select-text">{code}</pre>
       {oneLine && (
-        <Tooltip content="Type it at the prompt (you press Enter)" side="left">
+        <Tooltip content={tr("Type it at the prompt (you press Enter)")} side="left">
           <button
             type="button"
             onClick={() => {
-              pane.session.agentInput(code.trim());
-              pane.session.focus();
+              pane?.session?.agentInput(code.trim());
+              pane?.session?.focus();
             }}
             className="press absolute top-1 right-1 flex items-center gap-1 rounded bg-popover px-1.5 py-0.5 text-[10.5px] text-muted-foreground opacity-0 shadow-sm transition-opacity group-hover:opacity-100 hover:text-foreground"
           >
-            <Keyboard className="size-3" /> Type
+            <Keyboard className="size-3" /> {tr("Type")}
           </button>
         </Tooltip>
       )}

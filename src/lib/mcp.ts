@@ -5,8 +5,9 @@ import { listen } from "@tauri-apps/api/event";
 import { useEffect } from "react";
 import { create } from "zustand";
 import { ipc } from "@/lib/ipc";
+import type { AgentAutonomy } from "@/lib/settings";
 import { confirm } from "@/lib/overlay";
-import { type Pane, useApp } from "@/store/app";
+import { isTermPane, type Pane, type TermPane, useApp } from "@/store/app";
 import { atPrompt, isReadOnly, keysToBytes, readScreen, runCommand } from "./agent/terminal";
 
 export const useMcpStatus = create<{ listening: string | null; error: string | null }>(() => ({
@@ -77,16 +78,16 @@ function ask(title: string, message: string, confirmLabel: string): Promise<bool
   return next;
 }
 
-function paneFor(arg: unknown): Pane {
+function paneFor(arg: unknown): TermPane {
   const st = useApp.getState();
   if (typeof arg === "string" && arg) {
-    const p = st.panes[arg] ?? Object.values(st.panes).find((x) => x.title === arg);
-    if (!p) throw new Error(`No terminal "${arg}" — call list_terminals for ids.`);
+    const p = st.panes[arg] ?? Object.values(st.panes).find((x) => x.title === arg && isTermPane(x));
+    if (!isTermPane(p)) throw new Error(`No terminal "${arg}" — call list_terminals for ids.`);
     return p;
   }
   const tab = st.tabs.find((t) => t.id === st.activeTabId);
   const p = tab ? st.panes[tab.activePane] : undefined;
-  if (!p) throw new Error("No terminal is open — use open_terminal first.");
+  if (!isTermPane(p)) throw new Error("No terminal is open — use open_terminal first.");
   return p;
 }
 
@@ -99,13 +100,14 @@ function reveal(p: Pane) {
 
 const where = (p: Pane) => (p.kind === "ssh" ? `${p.title} (${p.subtitle})` : p.title);
 
-async function handle(name: string, args: Record<string, unknown>): Promise<string> {
-  const mode = useApp.getState().settings.mcp.autonomy;
+/** Run one of rainterm's terminal tools (MCP clients, and the agents session's workers). */
+export async function handle(name: string, args: Record<string, unknown>, modeOverride?: AgentAutonomy): Promise<string> {
+  const mode = modeOverride ?? useApp.getState().settings.mcp.autonomy;
   switch (name) {
     case "list_terminals": {
       const st = useApp.getState();
       const activeTab = st.tabs.find((t) => t.id === st.activeTabId);
-      const rows = Object.values(st.panes).map((p) => ({
+      const rows = Object.values(st.panes).filter(isTermPane).map((p) => ({
         id: p.id,
         title: p.title,
         kind: p.kind,
@@ -205,7 +207,7 @@ async function handle(name: string, args: Record<string, unknown>): Promise<stri
         await sleep(250);
       }
       const p = useApp.getState().panes[id];
-      if (!p) throw new Error("The terminal was closed.");
+      if (!isTermPane(p)) throw new Error("The terminal was closed.");
       if (p.status !== "connected") throw new Error(`Opened ${id} but it is ${p.status}${p.error ? `: ${p.error}` : ""}.`);
       // Let the shell finish starting (profile, first prompt): output quiet and at a prompt.
       for (let i = 0; i < 60; i++) {

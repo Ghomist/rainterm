@@ -4,6 +4,7 @@ import { Check, ChevronDown, ChevronUp } from "lucide-react";
 import { DropdownMenu as DM, Select as S, Slider as SL, Switch as SW } from "radix-ui";
 import * as React from "react";
 import { cn } from "@/lib/utils";
+import { tr } from "@/lib/i18n";
 
 const fieldBase =
   "flex h-8 w-full min-w-0 items-center rounded-md border border-input bg-inset text-[13px] outline-none transition-[border-color,box-shadow] duration-150 focus-visible:border-primary/60 focus-visible:ring-2 focus-visible:ring-ring/40 disabled:opacity-50";
@@ -56,7 +57,7 @@ export function Select<T extends string | number | null>({
           className,
         )}
       >
-        <S.Value placeholder={placeholder ?? "Select…"} />
+        <S.Value placeholder={placeholder ?? tr("Select…")} />
         <S.Icon asChild>
           <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
         </S.Icon>

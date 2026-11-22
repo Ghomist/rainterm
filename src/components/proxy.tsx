@@ -22,6 +22,7 @@ import { type ProxyDef, proxyLabel } from "@/lib/settings";
 import { cn } from "@/lib/utils";
 import { proxySecretKey, useApp } from "@/store/app";
 import { Field, Segmented } from "./dialogs";
+import { tr } from "@/lib/i18n";
 
 // ------------------------------------------------------------------ editor state
 
@@ -39,11 +40,11 @@ export async function deleteProxy(p: ProxyDef) {
   const st = useApp.getState();
   const users = st.profiles.filter((x) => x.kind === "ssh" && x.proxy === p.id);
   const ok = await confirm({
-    title: `Delete proxy “${proxyLabel(p)}”?`,
+    title: tr("Delete proxy “{0}”?", { 0: proxyLabel(p) }),
     message: users.length
-      ? `${users.length} session${users.length > 1 ? "s use" : " uses"} it; they'll switch to the default proxy setting.`
+      ? tr(users.length > 1 ? "{0} sessions use it; they'll switch to the default proxy setting." : "{0} session uses it; it will switch to the default proxy setting.", { 0: users.length })
       : undefined,
-    confirmLabel: "Delete",
+    confirmLabel: tr("Delete"),
     danger: true,
   });
   if (!ok) return;
@@ -121,7 +122,7 @@ export function ProxyEditorDialog() {
       if (password) await ipc.secretSet(proxySecretKey(def.id), password);
       else if (clearPw) await ipc.secretDelete(proxySecretKey(def.id)).catch(() => {});
     } catch (e) {
-      toast({ kind: "error", title: "Couldn't save the password in the keychain", description: String(e) });
+      toast({ kind: "error", title: tr("Couldn't save the password in the keychain"), description: String(e) });
       return;
     }
     const list = useApp.getState().settings.proxies;
@@ -136,11 +137,11 @@ export function ProxyEditorDialog() {
     <Dialog open={!!open} onOpenChange={(o) => !o && close()}>
       <DialogContent className="max-w-[min(440px,calc(100%-2rem))]">
         <DialogHeader>
-          <DialogTitle>{isNew ? "New proxy" : "Edit proxy"}</DialogTitle>
+          <DialogTitle>{isNew ? tr("New proxy") : tr("Edit proxy")}</DialogTitle>
           <DialogDescription>
             {isNew && proxies.length === 0
-              ? "Saved proxies can be reused by any session, or set as the default in Settings."
-              : "The password is kept in the OS keychain."}
+              ? tr("Saved proxies can be reused by any session, or set as the default in Settings.")
+              : tr("The password is kept in the OS keychain.")}
           </DialogDescription>
         </DialogHeader>
         <form
@@ -153,8 +154,8 @@ export function ProxyEditorDialog() {
           <Segmented
             value={p.kind}
             options={[
-              { value: "socks5", label: "SOCKS5" },
-              { value: "http", label: "HTTP (CONNECT)" },
+              { value: "socks5", label: tr("SOCKS5") },
+              { value: "http", label: tr("HTTP (CONNECT)") },
             ]}
             onChange={(kind) =>
               setP({
@@ -165,21 +166,21 @@ export function ProxyEditorDialog() {
             }
           />
           <div className="grid grid-cols-[1fr_88px] gap-2">
-            <Field label="Host">
+            <Field label={tr("Host")}>
               <Input autoFocus value={p.host} onChange={(e) => setP({ ...p, host: e.target.value })} />
             </Field>
-            <Field label="Port">
+            <Field label={tr("Port")}>
               <NumberInput value={p.port} min={1} max={65535} onChange={(port) => setP({ ...p, port })} />
             </Field>
           </div>
           <div className="grid grid-cols-2 gap-2">
-            <Field label="Username">
-              <Input placeholder="optional" value={p.user} onChange={(e) => setP({ ...p, user: e.target.value })} />
+            <Field label={tr("Username")}>
+              <Input placeholder={tr("optional")} value={p.user} onChange={(e) => setP({ ...p, user: e.target.value })} />
             </Field>
-            <Field label="Password">
+            <Field label={tr("Password")}>
               <Input
                 type="password"
-                placeholder={p.hasPassword && !clearPw ? "saved — type to change" : "optional"}
+                placeholder={p.hasPassword && !clearPw ? tr("saved — type to change") : tr("optional")}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
               />
@@ -191,10 +192,10 @@ export function ProxyEditorDialog() {
               onClick={() => setClearPw(true)}
               className="-mt-1.5 justify-self-end text-[11.5px] text-muted-foreground transition-colors hover:text-foreground"
             >
-              Forget saved password
+              {tr("Forget saved password")}
             </button>
           )}
-          <Field label="Name">
+          <Field label={tr("Name")}>
             <Input
               placeholder={proxyLabel({ ...p, name: "" })}
               value={p.name}
@@ -212,16 +213,16 @@ export function ProxyEditorDialog() {
             </div>
           )}
           <DialogFooter className="items-center">
-            <Tooltip content={`Connects to ${TEST_HOST}:${TEST_PORT} through the proxy`}>
+            <Tooltip content={tr("Connects to {0}:{1} through the proxy", { 0: TEST_HOST, 1: TEST_PORT })}>
               <Button type="button" variant="ghost" className="mr-auto" disabled={!valid || test.busy} onClick={() => void runTest()}>
-                <Zap className={cn("size-3.5", test.busy && "animate-pulse")} /> {test.busy ? "Testing…" : "Test"}
+                <Zap className={cn("size-3.5", test.busy && "animate-pulse")} /> {test.busy ? tr("Testing…") : tr("Test")}
               </Button>
             </Tooltip>
             <Button type="button" variant="ghost" onClick={close}>
-              Cancel
+              {tr("Cancel")}
             </Button>
             <Button type="submit" disabled={!valid}>
-              Save
+              {tr("Save")}
             </Button>
           </DialogFooter>
         </form>
@@ -278,13 +279,13 @@ export function ProxyPicker({
             ? [
                 {
                   value: null,
-                  label: "Default",
-                  hint: globalId === SYSTEM_PROXY ? "system proxy" : global ? proxyLabel(global) : "direct",
+                  label: tr("Default"),
+                  hint: globalId === SYSTEM_PROXY ? tr("system proxy") : global ? proxyLabel(global) : tr("direct"),
                 },
               ]
             : []),
-          { value: allowDefault ? "direct" : null, label: "None — connect directly" },
-          { value: SYSTEM_PROXY, label: "System proxy", hint: systemProxyLabel(sys) },
+          { value: allowDefault ? "direct" : null, label: tr("None — connect directly") },
+          { value: SYSTEM_PROXY, label: tr("System proxy"), hint: systemProxyLabel(sys) },
           ...proxies.map((x) => ({
             value: x.id,
             label: proxyLabel(x),
@@ -293,13 +294,13 @@ export function ProxyPicker({
         ]}
       />
       {current && (
-        <Tooltip content="Edit this proxy">
+        <Tooltip content={tr("Edit this proxy")}>
           <Button type="button" variant="ghost" size="icon" onClick={() => editProxy(current)}>
             <Pencil className="size-3.5" />
           </Button>
         </Tooltip>
       )}
-      <Tooltip content="New proxy…">
+      <Tooltip content={tr("New proxy…")}>
         <Button type="button" variant="ghost" size="icon" onClick={() => editProxy(null, (id) => onChange(id))}>
           <Plus className="size-3.5" />
         </Button>
@@ -319,24 +320,23 @@ export function NetworkSection() {
 
   return (
     <>
-      <Field label="Default proxy for SSH">
+      <Field label={tr("Default proxy for SSH")}>
         <ProxyPicker value={globalProxy} allowDefault={false} onChange={(v) => void updateSettings({ globalProxy: v })} />
       </Field>
       <p className="-mt-2 text-[12px] text-muted-foreground">
-        Used by every SSH session (and quick connect) that doesn't pick its own proxy. Through a jump host,
-        only the jump host's connection goes through a proxy.
+        {tr("Used by every SSH session (and quick connect) that doesn't pick its own proxy. Through a jump host, only the jump host's connection goes through a proxy.")}
       </p>
       <div className="grid gap-2">
         <div className="flex items-center justify-between">
-          <span className="text-[12px] font-medium text-foreground/90">Saved proxies</span>
+          <span className="text-[12px] font-medium text-foreground/90">{tr("Saved proxies")}</span>
           <Button size="sm" variant="outline" onClick={() => editProxy(null)}>
-            <Plus className="size-3.5" /> Add proxy
+            <Plus className="size-3.5" /> {tr("Add proxy")}
           </Button>
         </div>
         <SystemProxyRow isDefault={globalProxy === SYSTEM_PROXY} />
         {proxies.length === 0 ? (
           <div className="rounded-lg border border-dashed border-ov/10 p-4 text-center text-[12px] text-muted-foreground">
-            Add a SOCKS5 or HTTP proxy to reuse it in your sessions.
+            {tr("Add a SOCKS5 or HTTP proxy to reuse it in your sessions.")}
           </div>
         ) : (
           <div className="grid gap-1">
@@ -352,13 +352,13 @@ export function NetworkSection() {
                     <div className="flex items-center gap-1.5 truncate text-[12.5px]">
                       {proxyLabel(p)}
                       {globalProxy === p.id && (
-                        <span className="rounded bg-primary/15 px-1 text-[10px] font-medium text-primary">default</span>
+                        <span className="rounded bg-primary/15 px-1 text-[10px] font-medium text-primary">{tr("default")}</span>
                       )}
                     </div>
                     <div className="truncate text-[11px] text-muted-foreground">
-                      {p.kind === "http" ? "HTTP" : "SOCKS5"} {p.user ? `${p.user}@` : ""}
+                      {p.kind === "http" ? tr("HTTP") : tr("SOCKS5")} {p.user ? `${p.user}@` : ""}
                       {p.host}:{p.port}
-                      {n > 0 && ` · used by ${n} session${n > 1 ? "s" : ""}`}
+                      {n > 0 && tr(n > 1 ? " · used by {0} sessions" : " · used by {0} session", { 0: n })}
                     </div>
                   </div>
                   <Button variant="ghost" size="icon-sm" onClick={() => editProxy(p)}>
@@ -385,17 +385,16 @@ function SystemProxyRow({ isDefault }: { isDefault: boolean }) {
       <Monitor className="size-4 shrink-0 text-muted-foreground" />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5 truncate text-[12.5px]">
-          System proxy
-          <span className="rounded bg-ov/[0.08] px-1 text-[10px] text-muted-foreground">built-in</span>
-          {isDefault && <span className="rounded bg-primary/15 px-1 text-[10px] font-medium text-primary">default</span>}
+          {tr("System proxy")}<span className="rounded bg-ov/[0.08] px-1 text-[10px] text-muted-foreground">{tr("built-in")}</span>
+          {isDefault && <span className="rounded bg-primary/15 px-1 text-[10px] font-medium text-primary">{tr("default")}</span>}
         </div>
         <div className="truncate text-[11px] text-muted-foreground">
           {systemProxyLabel(sp)}
-          {sp?.source ? ` · from ${sp.source}` : ""}
-          {sp?.socks && sp.http ? " · SSH uses the SOCKS one" : ""}
+          {sp?.source ? tr(" · from {0}", { 0: sp.source }) : ""}
+          {sp?.socks && sp.http ? tr(" · SSH uses the SOCKS one") : ""}
         </div>
       </div>
-      <Tooltip content="Read the system setting again">
+      <Tooltip content={tr("Read the system setting again")}>
         <Button variant="ghost" size="icon-sm" onClick={reload}>
           <RefreshCw className="size-3.5" />
         </Button>

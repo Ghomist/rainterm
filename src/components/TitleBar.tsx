@@ -14,6 +14,7 @@ import {
   Server,
   Square,
   SquareTerminal,
+  Bot,
   X,
   Check,
 } from "lucide-react";
@@ -42,6 +43,7 @@ import { prompt } from "@/lib/overlay";
 import { type BroadcastMode, groupById, layoutPanes, type Tab, useApp } from "@/store/app";
 import { GroupPicker } from "./TerminalArea";
 import { StatusDot } from "./StatusDot";
+import { tr } from "@/lib/i18n";
 
 const spring = { type: "spring", stiffness: 520, damping: 38, mass: 0.7 } as const;
 
@@ -161,11 +163,11 @@ function TabItem({ tab }: { tab: Tab }) {
   const { setActiveTab, closeTab, renameTab, duplicateTab, closeOtherTabs, splitActive, setPaneGroup } =
     useApp.getState();
   if (!pane) return null;
-  const Icon = pane.kind === "ssh" ? Server : pane.kind === "serial" ? Cable : SquareTerminal;
+  const Icon = pane.kind === "ssh" ? Server : pane.kind === "serial" ? Cable : pane.kind === "agents" ? Bot : SquareTerminal;
   const title = tab.name ?? pane.title;
 
   const rename = async () => {
-    const name = await prompt({ title: "Rename tab", value: title, confirmLabel: "Rename" });
+    const name = await prompt({ title: tr("Rename tab"), value: title, confirmLabel: tr("Rename") });
     if (name !== null) renameTab(tab.id, name);
   };
 
@@ -246,7 +248,7 @@ function TabItem({ tab }: { tab: Tab }) {
           {/* Status dot and close button share one 20px slot, so they line up. */}
           <span className="relative -mr-1 flex size-5 shrink-0 items-center justify-center">
             {attention ? (
-              <Tooltip content={attention === "fail" ? "A command failed here" : "A long command finished here"}>
+              <Tooltip content={attention === "fail" ? tr("A command failed here") : tr("A long command finished here")}>
                 <span
                   className={cn(
                     "flex size-3.5 items-center justify-center rounded-full group-hover:hidden",
@@ -273,10 +275,10 @@ function TabItem({ tab }: { tab: Tab }) {
       </Tooltip>
       <ContextMenuContent className="min-w-56">
         <ContextMenuItem onSelect={() => void rename()}>
-          <Pencil /> Rename…
+          <Pencil /> {tr("Rename…")}
         </ContextMenuItem>
         <ContextMenuItem onSelect={() => duplicateTab(tab.id)}>
-          <CopyPlus /> Duplicate tab
+          <CopyPlus /> {tr("Duplicate tab")}
         </ContextMenuItem>
         <ContextMenuItem
           onSelect={() => {
@@ -284,7 +286,7 @@ function TabItem({ tab }: { tab: Tab }) {
             splitActive("row");
           }}
         >
-          <Columns2 /> Split right
+          <Columns2 /> {tr("Split right")}
         </ContextMenuItem>
         <ContextMenuItem
           onSelect={() => {
@@ -292,7 +294,7 @@ function TabItem({ tab }: { tab: Tab }) {
             splitActive("col");
           }}
         >
-          <Rows2 /> Split down
+          <Rows2 /> {tr("Split down")}
         </ContextMenuItem>
         <ContextMenuSeparator />
         <GroupPicker
@@ -303,10 +305,10 @@ function TabItem({ tab }: { tab: Tab }) {
         />
         <ContextMenuSeparator />
         <ContextMenuItem onSelect={() => closeOtherTabs(tab.id)}>
-          <XSquare /> Close other tabs
+          <XSquare /> {tr("Close other tabs")}
         </ContextMenuItem>
         <ContextMenuItem destructive onSelect={() => closeTab(tab.id)}>
-          <X /> Close tab
+          <X /> {tr("Close tab")}
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
@@ -320,7 +322,7 @@ function NewTabButton() {
 
   return (
     <div className="flex shrink-0 items-center">
-      <Tooltip content="New tab" shortcut="newTab">
+      <Tooltip content={tr("New tab")} shortcut="newTab">
         <Button variant="ghost" size="icon-sm" className="rounded-r-none" onClick={() => openLocal()}>
           <Plus />
         </Button>
@@ -332,7 +334,7 @@ function NewTabButton() {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start">
-          <DropdownMenuLabel>Local shells</DropdownMenuLabel>
+          <DropdownMenuLabel>{tr("Local shells")}</DropdownMenuLabel>
           {shells.map((sh) => (
             <DropdownMenuItem key={sh.id} onSelect={() => openLocal(sh)}>
               <SquareTerminal />
@@ -340,13 +342,18 @@ function NewTabButton() {
             </DropdownMenuItem>
           ))}
           <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={() => useApp.getState().openAgents()}>
+            <Bot />
+            {tr("Agents")}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={() => set({ profileEditor: { kind: "ssh" } })}>
             <Server />
-            New SSH session…
+            {tr("New SSH session…")}
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => set({ profileEditor: { kind: "serial" } })}>
             <Cable />
-            New serial session…
+            {tr("New serial session…")}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -376,7 +383,7 @@ function BroadcastMenu() {
   const tabKeys = useApp((s) => tooltipKeys(s.settings, "broadcast") ?? "");
   return (
     <DropdownMenu>
-      <Tooltip content="Broadcast input / input groups">
+      <Tooltip content={tr("Broadcast input / input groups")}>
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
@@ -392,7 +399,7 @@ function BroadcastMenu() {
         </DropdownMenuTrigger>
       </Tooltip>
       <DropdownMenuContent align="end" className="w-64">
-        <DropdownMenuLabel>Broadcast input</DropdownMenuLabel>
+        <DropdownMenuLabel>{tr("Broadcast input")}</DropdownMenuLabel>
         {modes.map((m) => (
           <DropdownMenuItem key={m.value} onSelect={() => setBroadcast(m.value)}>
             <span
@@ -403,14 +410,13 @@ function BroadcastMenu() {
             >
               {broadcast === m.value && <span className="size-1.5 rounded-full bg-primary" />}
             </span>
-            <span className="flex-1">{m.label}</span>
+            <span className="flex-1">{tr(m.label)}</span>
             <span className="text-[10.5px] text-muted-foreground">{m.value === "tab" ? tabKeys : ""}</span>
           </DropdownMenuItem>
         ))}
         <DropdownMenuSeparator />
         <div className="px-2 py-1.5 text-[11.5px] leading-relaxed text-muted-foreground">
-          For finer control use <span className="text-foreground">input groups</span>: right-click a
-          tab or a pane header and pick A–D. Terminals in the same group share input, across tabs.
+          {tr("For finer control use")}{" "}<span className="text-foreground">{tr("input groups")}</span>{tr(": right-click a tab or a pane header and pick A–D. Terminals in the same group share input, across tabs.")}
         </div>
       </DropdownMenuContent>
     </DropdownMenu>

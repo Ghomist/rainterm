@@ -8,6 +8,7 @@ import {
   ArrowRightToLine,
   ArrowUp,
   Boxes,
+  Bot,
   FolderTree,
   Network,
   RotateCcw,
@@ -33,11 +34,13 @@ import type { DockSide, ViewId } from "@/lib/settings";
 import { cn } from "@/lib/utils";
 import { useApp } from "@/store/app";
 import { AgentPanel } from "./AgentPanel";
+import { AgentsDock } from "./AgentsView";
 import { FilesView } from "./FilePanel";
 import { MonitorPanel } from "./MonitorPanel";
 import { ContainersPanel, K8sPanel, PortsPanel } from "./OpsPanels";
 import { SessionsView } from "./Sidebar";
 import { SnippetsPanel } from "./SnippetsPanel";
+import { tr } from "@/lib/i18n";
 
 export const VIEWS: Record<ViewId, { label: string; icon: React.ReactNode; render: () => React.ReactNode }> = {
   sessions: { label: "Sessions", icon: <Server />, render: () => <SessionsView /> },
@@ -48,6 +51,7 @@ export const VIEWS: Record<ViewId, { label: string; icon: React.ReactNode; rende
   ports: { label: "Ports", icon: <Network />, render: () => <PortsPanel /> },
   containers: { label: "Containers", icon: <Boxes />, render: () => <ContainersPanel /> },
   k8s: { label: "Kubernetes", icon: <Ship />, render: () => <K8sPanel /> },
+  agents: { label: "Agent pool", icon: <Bot />, render: () => <AgentsDock /> },
 };
 
 /** Full-width, square rail cells flush with the window edge (no floating pills). */
@@ -133,7 +137,7 @@ export function Dock({ side }: { side: DockSide }) {
               transition={{ duration: 0.16, ease: [0.2, 0.8, 0.2, 1] }}
               className="absolute inset-0 flex flex-col"
             >
-              <ErrorBoundary key={content} label={VIEWS[content].label}>{VIEWS[content].render()}</ErrorBoundary>
+              <ErrorBoundary key={content} label={tr(VIEWS[content].label)}>{VIEWS[content].render()}</ErrorBoundary>
             </motion.div>
           )}
         </AnimatePresence>
@@ -179,7 +183,7 @@ function Rail({ side, views, shown }: { side: DockSide; views: ViewId[]; shown: 
       {side === "left" && (
         <>
           <div className="flex-1" />
-          <Tooltip content="Settings" shortcut="settings" side="right">
+          <Tooltip content={tr("Settings")} shortcut="settings" side="right">
             <button
               type="button"
               onClick={() => set({ settingsOpen: true })}
@@ -216,12 +220,12 @@ function RailButton({
   const other: DockSide = side === "left" ? "right" : "left";
   return (
     <ContextMenu>
-      <Tooltip content={v.label} shortcut={id === "sessions" ? "sessionsView" : id} side={side === "left" ? "right" : "left"}>
+      <Tooltip content={tr(v.label)} shortcut={id === "sessions" ? "sessionsView" : id} side={side === "left" ? "right" : "left"}>
         <ContextMenuTrigger asChild>
           <button
             type="button"
             onClick={onClick}
-            aria-label={v.label}
+            aria-label={tr(v.label)}
             data-active={active}
             className={railBtn}
           >
@@ -250,17 +254,17 @@ function RailButton({
       </Tooltip>
       <ContextMenuContent>
         <ContextMenuItem onSelect={() => moveView(id, other)}>
-          {other === "left" ? <ArrowLeftToLine /> : <ArrowRightToLine />} Move to {other} side
+          {other === "left" ? <ArrowLeftToLine /> : <ArrowRightToLine />} {other === "left" ? tr("Move to the left side") : tr("Move to the right side")}
         </ContextMenuItem>
         <ContextMenuItem disabled={index === 0} onSelect={() => moveView(id, side, index - 1)}>
-          <ArrowUp /> Move up
+          <ArrowUp /> {tr("Move up")}
         </ContextMenuItem>
         <ContextMenuItem disabled={index === count - 1} onSelect={() => moveView(id, side, index + 1)}>
-          <ArrowDown /> Move down
+          <ArrowDown /> {tr("Move down")}
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem onSelect={resetDock}>
-          <RotateCcw /> Reset panel layout
+          <RotateCcw /> {tr("Reset panel layout")}
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>

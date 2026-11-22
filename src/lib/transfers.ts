@@ -3,6 +3,7 @@ import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { create } from "zustand";
 import { Channel, ipc, type Progress } from "./ipc";
 import { toast } from "./overlay";
+import { tr } from "@/lib/i18n";
 
 export type JobStatus = "running" | "done" | "error" | "cancelled";
 
@@ -87,7 +88,7 @@ export async function download(sessionId: string, remotes: string[], localDir: s
     });
   } catch (e) {
     finish(id, e);
-    if (!String(e).includes("cancelled")) toast({ kind: "error", title: `Download failed: ${label}`, description: String(e) });
+    if (!String(e).includes("cancelled")) toast({ kind: "error", title: tr("Download failed: {0}", { 0: label }), description: String(e) });
   }
 }
 
@@ -97,11 +98,11 @@ export async function upload(sessionId: string, locals: string[], remoteDir: str
   try {
     await ipc.fsUpload(sessionId, locals, remoteDir, id, ch);
     finish(id);
-    toast({ kind: "success", title: `Uploaded ${label}`, description: remoteDir });
+    toast({ kind: "success", title: tr("Uploaded {0}", { 0: label }), description: remoteDir });
     return true;
   } catch (e) {
     finish(id, e);
-    if (!String(e).includes("cancelled")) toast({ kind: "error", title: `Upload failed: ${label}`, description: String(e) });
+    if (!String(e).includes("cancelled")) toast({ kind: "error", title: tr("Upload failed: {0}", { 0: label }), description: String(e) });
     return false;
   }
 }

@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 import { allGroups, type Profile, type SerialProfile, type SshProfile, useApp } from "@/store/app";
 import { Tooltip } from "@/components/ui/tooltip";
 import { ProxyEditorDialog, ProxyPicker } from "./proxy";
+import { tr } from "@/lib/i18n";
 
 export function Dialogs() {
   return (
@@ -164,20 +165,20 @@ function ProfileEditor() {
       <DialogContent className="max-h-[calc(100vh-4rem)] max-w-[min(520px,calc(100%-2rem))] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
-            {isNew ? "New" : "Edit"} {p.kind === "ssh" ? "SSH" : "serial"} session
+            {isNew ? (p.kind === "ssh" ? tr("New SSH session") : tr("New serial session")) : p.kind === "ssh" ? tr("Edit SSH session") : tr("Edit serial session")}
           </DialogTitle>
           <DialogDescription>
             {p.kind === "ssh"
-              ? "You'll be asked for a password when connecting, if the server needs one."
-              : "Connect to a serial device (COM port / tty)."}
+              ? tr("You'll be asked for a password when connecting, if the server needs one.")
+              : tr("Connect to a serial device (COM port / tty).")}
           </DialogDescription>
         </DialogHeader>
         {isNew && (
           <Segmented
             value={p.kind}
             options={[
-              { value: "ssh", label: "SSH" },
-              { value: "serial", label: "Serial" },
+              { value: "ssh", label: tr("SSH") },
+              { value: "serial", label: tr("Serial") },
             ]}
             onChange={(k) => setP(k === "ssh" ? blankSsh() : blankSerial())}
           />
@@ -195,16 +196,16 @@ function ProfileEditor() {
             <SerialFields p={p} setP={setP} />
           )}
           <div className="grid grid-cols-2 gap-2">
-            <Field label="Name">
+            <Field label={tr("Name")}>
               <Input
-                placeholder="optional"
+                placeholder={tr("optional")}
                 value={p.name}
                 onChange={(e) => setP({ ...p, name: e.target.value })}
               />
             </Field>
-            <Field label="Group">
+            <Field label={tr("Group")}>
               <ComboInput
-                placeholder="none, or e.g. Production"
+                placeholder={tr("none, or e.g. Production")}
                 value={p.group ?? ""}
                 onChange={(v) => setP({ ...p, group: v })}
                 options={groupNames.map((g) => ({ value: g, label: g }))}
@@ -213,10 +214,10 @@ function ProfileEditor() {
           </div>
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => set({ profileEditor: null })}>
-              Cancel
+              {tr("Cancel")}
             </Button>
             <Button type="submit" disabled={!valid}>
-              Save
+              {tr("Save")}
             </Button>
           </DialogFooter>
         </form>
@@ -239,29 +240,29 @@ function SshFields({
   return (
     <>
       <div className="grid grid-cols-[1fr_88px] gap-2">
-        <Field label="Host">
+        <Field label={tr("Host")}>
           <Input
             autoFocus
-            placeholder="example.com"
+            placeholder={tr("example.com")}
             value={p.host}
             onChange={(e) => setP({ ...p, host: e.target.value })}
           />
         </Field>
-        <Field label="Port">
+        <Field label={tr("Port")}>
           <NumberInput value={p.port} min={1} max={65535} onChange={(port) => setP({ ...p, port })} />
         </Field>
       </div>
-      <Field label="Username">
+      <Field label={tr("Username")}>
         <Input value={p.user} onChange={(e) => setP({ ...p, user: e.target.value })} />
       </Field>
-      <Field label="Authentication">
+      <Field label={tr("Authentication")}>
         <Segmented
           value={p.auth.kind}
           options={[
-            { value: "auto", label: "Auto" },
-            { value: "password", label: "Password" },
-            { value: "key", label: "Key file" },
-            { value: "agent", label: "Agent" },
+            { value: "auto", label: tr("Auto") },
+            { value: "password", label: tr("Password") },
+            { value: "key", label: tr("Key file") },
+            { value: "agent", label: tr("Agent") },
           ]}
           onChange={(k) =>
             setP({
@@ -280,12 +281,11 @@ function SshFields({
       </Field>
       {p.auth.kind === "auto" && (
         <p className="-mt-1 text-[11.5px] text-muted-foreground">
-          Tries your SSH agent, then ~/.ssh/id_ed25519 / id_ecdsa / id_rsa, then asks for a
-          password — like the <code className="font-mono">ssh</code> command.
+          {tr("Tries your SSH agent, then ~/.ssh/id_ed25519 / id_ecdsa / id_rsa, then asks for a password — like the ssh command.")}
         </p>
       )}
       {p.auth.kind === "key" && (
-        <Field label="Private key path">
+        <Field label={tr("Private key path")}>
           <Input
             value={keyPath}
             onChange={(e) => setP({ ...p, auth: { kind: "key", path: e.target.value } })}
@@ -295,22 +295,22 @@ function SshFields({
       {p.remember && p.auth.kind !== "agent" && (
         <div className="-mt-1 flex items-center gap-2 text-[11.5px] text-muted-foreground">
           <KeyRound className="size-3.5" />
-          <span className="flex-1">{p.auth.kind === "key" ? "Passphrase" : "Password"} saved in the OS keychain</span>
+          <span className="flex-1">{p.auth.kind === "key" ? tr("Passphrase") : tr("Password")} {tr("saved in the OS keychain")}</span>
           <button
             type="button"
             className="transition-colors hover:text-foreground"
             onClick={() => setP({ ...p, remember: false })}
           >
-            Forget
+            {tr("Forget")}
           </button>
         </div>
       )}
-      <Field label="Jump host (ProxyJump)">
+      <Field label={tr("Jump host (ProxyJump)")}>
         <Select<string | null>
           value={p.jumpId ?? null}
           onChange={(jumpId) => setP({ ...p, jumpId })}
           options={[
-            { value: null, label: "None — connect directly" },
+            { value: null, label: tr("None — connect directly") },
             ...jumpCandidates.map((j) => ({
               value: j.id,
               label: j.name,
@@ -319,10 +319,10 @@ function SshFields({
           ]}
         />
       </Field>
-      <Field label="Proxy">
+      <Field label={tr("Proxy")}>
         <ProxyPicker value={p.proxy ?? null} onChange={(proxy) => setP({ ...p, proxy })} />
       </Field>
-      <Field label="Port forwarding">
+      <Field label={tr("Port forwarding")}>
         <ForwardsEditor value={p.forwards} onChange={(forwards) => setP({ ...p, forwards })} />
       </Field>
     </>
@@ -338,10 +338,10 @@ function SerialFields({ p, setP }: { p: SerialProfile; setP: (p: Profile) => voi
     setP({ ...p, target: { ...t, ...patch } });
   return (
     <>
-      <Field label="Port">
+      <Field label={tr("Port")}>
         <div className="flex gap-1.5">
           <ComboInput
-            placeholder={navigator.userAgent.includes("Windows") ? "COM3" : "/dev/ttyUSB0"}
+            placeholder={navigator.userAgent.includes("Windows") ? tr("COM3") : tr("/dev/ttyUSB0")}
             value={t.port}
             onChange={(port) => upd({ port })}
             options={ports.map((x) => ({ value: x.name, label: x.name, hint: x.description }))}
@@ -352,12 +352,12 @@ function SerialFields({ p, setP }: { p: SerialProfile; setP: (p: Profile) => voi
         </div>
         {ports.length > 0 && (
           <div className="text-[11px] text-muted-foreground">
-            Found: {ports.map((x) => `${x.name}${x.description ? ` (${x.description})` : ""}`).join(", ")}
+            {tr("Found:")}{" "}{ports.map((x) => `${x.name}${x.description ? ` (${x.description})` : ""}`).join(", ")}
           </div>
         )}
       </Field>
       <div className="grid grid-cols-4 gap-2">
-        <Field label="Baud">
+        <Field label={tr("Baud")}>
           <ComboInput
             numeric
             value={String(t.baud || "")}
@@ -368,25 +368,25 @@ function SerialFields({ p, setP }: { p: SerialProfile; setP: (p: Profile) => voi
             }))}
           />
         </Field>
-        <Field label="Data bits">
+        <Field label={tr("Data bits")}>
           <Select
             value={t.dataBits}
             onChange={(dataBits) => upd({ dataBits })}
             options={[8, 7, 6, 5].map((b) => ({ value: b, label: String(b) }))}
           />
         </Field>
-        <Field label="Parity">
+        <Field label={tr("Parity")}>
           <Select<SerialProfile["target"]["parity"]>
             value={t.parity}
             onChange={(parity) => upd({ parity })}
             options={[
-              { value: "none", label: "None" },
-              { value: "odd", label: "Odd" },
-              { value: "even", label: "Even" },
+              { value: "none", label: tr("None") },
+              { value: "odd", label: tr("Odd") },
+              { value: "even", label: tr("Even") },
             ]}
           />
         </Field>
-        <Field label="Stop bits">
+        <Field label={tr("Stop bits")}>
           <Select
             value={t.stopBits}
             onChange={(stopBits) => upd({ stopBits })}
@@ -428,9 +428,9 @@ function SecretPrompt() {
           >
             <KeyRound className="size-4.5" />
           </div>
-          <DialogTitle>{isPass ? "Key passphrase" : "Password"}</DialogTitle>
+          <DialogTitle>{isPass ? tr("Key passphrase") : tr("Password")}</DialogTitle>
           <DialogDescription className="truncate">
-            {retry ? `${prompt?.message} — ` : ""}
+            {retry ? `${prompt?.message.replace(/Wrong (password|passphrase), try again/, (m) => tr(m))} — ` : ""}
             {prompt?.label}
           </DialogDescription>
         </DialogHeader>
@@ -444,14 +444,14 @@ function SecretPrompt() {
           <Input autoFocus type="password" value={value} onChange={(e) => setValue(e.target.value)} />
           {prompt?.canRemember && (
             <Check checked={remember} onChange={setRemember}>
-              Remember in the OS keychain
+              {tr("Remember in the OS keychain")}
             </Check>
           )}
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => void answer(null, false)}>
-              Cancel
+              {tr("Cancel")}
             </Button>
-            <Button type="submit">Connect</Button>
+            <Button type="submit">{tr("Connect")}</Button>
           </DialogFooter>
         </form>
       </DialogContent>
@@ -477,25 +477,21 @@ function HostKeyDialog() {
           >
             <ShieldAlert className="size-4.5" />
           </div>
-          <DialogTitle>{prompt?.changed ? "Host key changed" : "Unknown host"}</DialogTitle>
+          <DialogTitle>{prompt?.changed ? tr("Host key changed") : tr("Unknown host")}</DialogTitle>
           <DialogDescription>
             {prompt?.changed ? (
               <>
                 <span className="text-foreground">
                   {prompt.host}:{prompt.port}
                 </span>{" "}
-                presents a different key than the one saved in known_hosts. That's expected after the server was
-                reinstalled or its keys regenerated — otherwise someone may be intercepting the connection. Only
-                continue if you know why it changed.
-              </>
+                {tr("presents a different key than the one saved in known_hosts. That's expected after the server was reinstalled or its keys regenerated — otherwise someone may be intercepting the connection. Only continue if you know why it changed.")}</>
             ) : (
               <>
-                The authenticity of{" "}
+                {tr("The authenticity of")}{" "}
                 <span className="text-foreground">
                   {prompt?.host}:{prompt?.port}
                 </span>{" "}
-                can't be established. Verify the fingerprint before trusting it.
-              </>
+                {tr("can't be established. Verify the fingerprint before trusting it.")}</>
             )}
           </DialogDescription>
         </DialogHeader>
@@ -505,15 +501,15 @@ function HostKeyDialog() {
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={() => answer(false)}>
-            Cancel
+            {tr("Cancel")}
           </Button>
           {prompt?.changed ? (
             <Button variant="destructive" onClick={() => answer(true)}>
-              Replace key & connect
+              {tr("Replace key & connect")}
             </Button>
           ) : (
             <Button autoFocus onClick={() => answer(true)}>
-              Trust & Connect
+              {tr("Trust & Connect")}
             </Button>
           )}
         </DialogFooter>
@@ -542,29 +538,29 @@ function ForwardsEditor({ value, onChange }: { value: Forward[]; onChange: (v: F
             <Select
               value={kind}
               onChange={(k) => set(i, { kind: k })}
-              options={FORWARD_KINDS.map((k) => ({ value: k.value, label: k.label, hint: k.hint }))}
+              options={FORWARD_KINDS.map((k) => ({ value: k.value, label: tr(k.label), hint: tr(k.hint) }))}
             />
             {kind === "dynamic" ? (
               <div className="flex min-w-0 items-center gap-1.5">
-                <span className="shrink-0 text-[11.5px] text-muted-foreground">SOCKS5 on 127.0.0.1 :</span>
+                <span className="shrink-0 text-[11.5px] text-muted-foreground">{tr("SOCKS5 on 127.0.0.1 :")}</span>
                 <NumberInput placeholder="1080" min={1} max={65535} value={port(f.localPort)} onChange={(localPort) => set(i, { localPort })} />
               </div>
             ) : kind === "remote" ? (
               <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_76px_auto_minmax(0,1fr)_76px] items-center gap-1">
-                <Tooltip content="Address the server listens on (127.0.0.1 = only the server itself)">
+                <Tooltip content={tr("Address the server listens on (127.0.0.1 = only the server itself)")}>
                   <Input placeholder="127.0.0.1" value={f.remoteHost} onChange={(e) => set(i, { remoteHost: e.target.value })} />
                 </Tooltip>
-                <NumberInput placeholder="server port" min={0} max={65535} value={port(f.remotePort)} onChange={(remotePort) => set(i, { remotePort })} />
+                <NumberInput placeholder={tr("server port")} min={0} max={65535} value={port(f.remotePort)} onChange={(remotePort) => set(i, { remotePort })} />
                 <span className="text-muted-foreground">→</span>
                 <Input placeholder="127.0.0.1" value={f.localHost ?? "127.0.0.1"} onChange={(e) => set(i, { localHost: e.target.value })} />
-                <NumberInput placeholder="local port" min={1} max={65535} value={port(f.localPort)} onChange={(localPort) => set(i, { localPort })} />
+                <NumberInput placeholder={tr("local port")} min={1} max={65535} value={port(f.localPort)} onChange={(localPort) => set(i, { localPort })} />
               </div>
             ) : (
               <div className="grid min-w-0 grid-cols-[76px_auto_minmax(0,1fr)_76px] items-center gap-1">
-                <NumberInput placeholder="local" min={0} max={65535} value={port(f.localPort)} onChange={(localPort) => set(i, { localPort })} />
+                <NumberInput placeholder={tr("local")} min={0} max={65535} value={port(f.localPort)} onChange={(localPort) => set(i, { localPort })} />
                 <span className="text-muted-foreground">→</span>
-                <Input placeholder="remote host" value={f.remoteHost} onChange={(e) => set(i, { remoteHost: e.target.value })} />
-                <NumberInput placeholder="port" min={0} max={65535} value={port(f.remotePort)} onChange={(remotePort) => set(i, { remotePort })} />
+                <Input placeholder={tr("remote host")} value={f.remoteHost} onChange={(e) => set(i, { remoteHost: e.target.value })} />
+                <NumberInput placeholder={tr("port")} min={0} max={65535} value={port(f.remotePort)} onChange={(remotePort) => set(i, { remotePort })} />
               </div>
             )}
             <Button type="button" variant="ghost" size="icon-sm" onClick={() => onChange(value.filter((_, j) => j !== i))}>
@@ -591,7 +587,7 @@ function ForwardsEditor({ value, onChange }: { value: Forward[]; onChange: (v: F
               ])
             }
           >
-            <Plus className="size-3.5" /> {k.label.split(/\s+/)[0]}
+            <Plus className="size-3.5" /> {tr(k.label).split(/\s+/)[0]}
           </Button>
         ))}
       </div>

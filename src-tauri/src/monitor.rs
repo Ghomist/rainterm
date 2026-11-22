@@ -64,11 +64,18 @@ pub struct Proc {
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Gpu {
+    /// "gpu", or "npu" for Huawei Ascend accelerators (read from npu-smi).
+    pub kind: &'static str,
     pub name: String,
+    /// GPU utilisation; for an NPU, AI Core usage.
     pub util: Option<f32>,
     pub mem_used: Option<u64>,
     pub mem_total: Option<u64>,
     pub temp: Option<f32>,
+    /// Watts, when reported.
+    pub power: Option<f32>,
+    /// npu-smi health ("OK", "Warning", "Alarm", "Critical"…).
+    pub health: Option<String>,
 }
 
 // ------------------------------------------------------------------ local
@@ -80,6 +87,7 @@ struct Local {
     gpus: Option<Gpus>,
     last_net: Instant,
     nvidia_smi: Option<bool>,
+    npu_smi: Option<bool>,
 }
 
 /// The sampler lives on one dedicated thread: CPU usage needs consecutive samples
@@ -99,6 +107,8 @@ static WORKER: LazyLock<Mutex<std::sync::mpsc::Sender<std::sync::mpsc::Sender<Sn
                     gpus: Gpus::new_with_refreshed_list().ok(),
                     last_net: Instant::now(),
                     nvidia_smi: None,
+                    // Ascend cards only exist on Linux hosts.
+                    npu_smi: if cfg!(target_os = "linux") { None } else { Some(false) },
                 };
                 while let Ok(reply) = rx.recv() {
                     let _ = reply.send(sample(&mut l));
@@ -212,17 +222,29 @@ fn sample(l: &mut Local) -> Snapshot {
             None => l.nvidia_smi = Some(false),
         }
     }
+    if l.npu_smi != Some(false) {
+        match npu_smi() {
+            Some(n) => {
+                l.npu_smi = Some(true);
+                gpus.extend(n);
+            }
+            None => l.npu_smi = Some(false),
+        }
+    }
     if gpus.is_empty() {
         if let Some(g) = l.gpus.as_mut() {
             g.refresh(true);
             gpus = g
                 .iter()
                 .map(|g| Gpu {
+                    kind: "gpu",
                     name: g.model().or(g.vendor()).unwrap_or("GPU").to_string(),
                     util: g.usage(),
                     mem_used: g.used_memory(),
                     mem_total: g.total_memory(),
                     temp: None,
+                    power: None,
+                    health: None,
                 })
                 .collect();
         }
@@ -273,14 +295,135 @@ fn parse_nvidia(text: &str) -> Vec<Gpu> {
         .filter_map(|l| {
             let f: Vec<&str> = l.split(',').map(str::trim).collect();
             (f.len() >= 5).then(|| Gpu {
+                kind: "gpu",
                 name: f[0].to_string(),
                 util: f[1].parse().ok(),
                 mem_used: f[2].parse::<u64>().ok().map(|m| m * 1024 * 1024),
                 mem_total: f[3].parse::<u64>().ok().map(|m| m * 1024 * 1024),
                 temp: f[4].parse().ok(),
+                power: f.get(5).and_then(|p| p.parse().ok()),
+                health: None,
             })
         })
         .collect()
+}
+
+// ------------------------------------------------------------------ Ascend NPU (npu-smi)
+
+fn npu_smi() -> Option<Vec<Gpu>> {
+    for bin in ["npu-smi", "/usr/local/sbin/npu-smi", "/usr/local/bin/npu-smi"] {
+        if let Ok(out) = std::process::Command::new(bin).arg("info").output() {
+            if out.status.success() {
+                let n = parse_npu(&String::from_utf8_lossy(&out.stdout));
+                return (!n.devices.is_empty()).then_some(n.devices);
+            }
+        }
+    }
+    None
+}
+
+#[derive(Default)]
+struct NpuInfo {
+    devices: Vec<Gpu>,
+    /// pid -> device memory in bytes (process table).
+    procs: HashMap<u32, u64>,
+}
+
+/// `npu-smi info` prints a box-drawn table, two rows per chip:
+///
+/// ```text
+/// | NPU   Name         | Health   | Power(W)  Temp(C)   Hugepages-Usage(page) |
+/// | Chip  [Device]     | Bus-Id   | AICore(%) Memory-Usage(MB) [HBM-Usage(MB)] |
+/// | 0     910B3        | OK       | 93.6      40        0    / 0              |
+/// | 0                  | 0000:C1:00.0 | 0     0    / 0   3161 / 65536         |
+/// ```
+///
+/// then a process table (`NPU Chip | Process id | Process name | Process memory(MB)`).
+/// Columns vary between driver versions and card families (310P has no HBM column,
+/// several chips can follow one NPU row), so cells are recognised by shape, not position.
+fn parse_npu(text: &str) -> NpuInfo {
+    let mut info = NpuInfo::default();
+    let mut in_procs = false;
+    // Current NPU row: (id, model, health, power, temp) — chip rows below it belong to it.
+    let mut npu: Option<(String, String, String, Option<f32>, Option<f32>)> = None;
+    let mut chips_of_npu = 0usize;
+    let num = |s: &str| s.trim().parse::<f32>().ok();
+    let pairs = |s: &str| -> Vec<(u64, u64)> {
+        // "0 / 0   3161 / 65536" -> [(0,0), (3161,65536)]
+        let t: Vec<&str> = s.split_whitespace().collect();
+        let mut out = Vec::new();
+        let mut i = 0;
+        while i + 2 < t.len() {
+            if t[i + 1] == "/" {
+                if let (Ok(a), Ok(b)) = (t[i].parse(), t[i + 2].parse()) {
+                    out.push((a, b));
+                    i += 3;
+                    continue;
+                }
+            }
+            i += 1;
+        }
+        out
+    };
+    for line in text.lines() {
+        let line = line.trim();
+        if !line.starts_with('|') {
+            continue;
+        }
+        let cells: Vec<&str> = line.trim_matches('|').split('|').map(str::trim).collect();
+        if line.contains("Process id") || line.contains("Process name") {
+            in_procs = true;
+            continue;
+        }
+        if in_procs {
+            // | 0  0 | 12345 | python3 | 2048 |
+            if cells.len() >= 4 {
+                if let (Ok(pid), Some(mb)) = (cells[1].parse::<u32>(), num(cells[cells.len() - 1])) {
+                    *info.procs.entry(pid).or_default() += mb as u64 * 1024 * 1024;
+                }
+            }
+            continue;
+        }
+        if cells.len() < 3 {
+            continue;
+        }
+        let first: Vec<&str> = cells[0].split_whitespace().collect();
+        let is_bus = cells[1].len() >= 7 && cells[1].chars().nth(4) == Some(':') && cells[1].contains('.');
+        if is_bus {
+            // Chip row: AICore(%) then "used / total" pairs (Memory, then HBM if present).
+            let Some((id, model, health, power, temp)) = npu.clone() else { continue };
+            let usage = cells[2];
+            let util = usage.split_whitespace().next().and_then(num);
+            let p = pairs(usage);
+            // HBM is the accelerator's real working memory where it exists (910 family).
+            let mem = p.iter().rev().find(|(_, t)| *t > 0).copied();
+            let chip = first.first().copied().unwrap_or("0");
+            chips_of_npu += 1;
+            let name = if chips_of_npu > 1 || chip != "0" {
+                format!("Ascend {model} · NPU {id} chip {chip}")
+            } else {
+                format!("Ascend {model}")
+            };
+            info.devices.push(Gpu {
+                kind: "npu",
+                name,
+                util,
+                mem_used: mem.map(|m| m.0 * 1024 * 1024),
+                mem_total: mem.map(|m| m.1 * 1024 * 1024),
+                temp,
+                power,
+                health: Some(health),
+            });
+        } else if first.len() >= 2 && first[0].parse::<u32>().is_ok() && !cells[1].is_empty() && cells[1].chars().all(|c| c.is_ascii_alphabetic()) {
+            // NPU row: id + model | health | power temp hugepages
+            let mut t = cells[2].split_whitespace();
+            let power = t.next().and_then(num);
+            let temp = t.next().and_then(num);
+            npu = Some((first[0].to_string(), first[1..].join(" "), cells[1].to_string(), power, temp));
+            chips_of_npu = 0;
+        }
+    }
+    info
 }
 
 // ------------------------------------------------------------------ remote (Linux over SSH)
@@ -298,7 +441,8 @@ echo '##ps'; ps -eo pid,pcpu,rss,user:16,comm:24,args --sort=-pcpu 2>/dev/null |
 echo '##psmem'; ps -eo pid,pcpu,rss,user:16,comm:24,args --sort=-rss 2>/dev/null | head -61; \
 echo '##gpuapps'; nvidia-smi --query-compute-apps=pid,used_memory --format=csv,noheader,nounits 2>/dev/null; \
 echo '##diskstats'; cat /proc/diskstats; \
-echo '##gpu'; nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu --format=csv,noheader,nounits 2>/dev/null; \
+echo '##gpu'; nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw --format=csv,noheader,nounits 2>/dev/null; \
+echo '##npu'; for n in npu-smi /usr/local/sbin/npu-smi /usr/local/bin/npu-smi; do command -v $n >/dev/null 2>&1 && { $n info 2>/dev/null; break; }; done; \
 echo '##end'";
 
 #[derive(Default)]
@@ -471,13 +615,17 @@ fn parse_remote(text: &str, prev: &mut Prev) -> Snapshot {
 
     // Processes (ps pcpu is per-core %, normalise). Top by CPU + top by memory.
     let ncpu = snap.cores.len().max(1) as f32;
-    let gpu_mem: HashMap<u32, u64> = get("gpuapps")
+    let npu = parse_npu(&get("npu").join("\n"));
+    let mut gpu_mem: HashMap<u32, u64> = get("gpuapps")
         .iter()
         .filter_map(|l| {
             let mut it = l.split(',').map(str::trim);
             Some((it.next()?.parse().ok()?, it.next()?.parse::<u64>().ok()? * 1024 * 1024))
         })
         .collect();
+    for (pid, m) in &npu.procs {
+        *gpu_mem.entry(*pid).or_default() += m;
+    }
     for l in get("ps").iter().skip(1).chain(get("psmem").iter().skip(1)) {
         let f: Vec<&str> = l.split_whitespace().collect();
         if f.len() < 5 {
@@ -502,6 +650,7 @@ fn parse_remote(text: &str, prev: &mut Prev) -> Snapshot {
     }
 
     snap.gpus = parse_nvidia(&get("gpu").join("\n"));
+    snap.gpus.extend(npu.devices);
     snap
 }
 
@@ -514,6 +663,65 @@ mod tests {
 ##load\n0.50 0.40 0.30 1/100 1\n##df\nFilesystem Type 1024-blocks Used Available Capacity Mounted on\n/dev/sda1 ext4 1000 250 750 25% /\n\
 ##net\nh1\nh2\n  lo: 5 0 0 0 0 0 0 0 5 0 0 0 0 0 0 0\neth0: 1000 0 0 0 0 0 0 0 2000 0 0 0 0 0 0 0\n\
 ##ps\n  PID %CPU   RSS USER COMMAND ARGS\n  1  2.0  1024 root systemd /sbin/init splash\n##gpu\nTesla T4, 55, 1000, 15000, 60\n##end\n";
+
+    const NPU_910B: &str = "\
++------------------------------------------------------------------------------------------------+
+| npu-smi 24.1.0                   Version: 24.1.0                                               |
++---------------------------+---------------+----------------------------------------------------+
+| NPU   Name                | Health        | Power(W)    Temp(C)           Hugepages-Usage(page)|
+| Chip                      | Bus-Id        | AICore(%)   Memory-Usage(MB)  HBM-Usage(MB)        |
++===========================+===============+====================================================+
+| 0     910B3               | OK            | 93.6        40                0    / 0             |
+| 0                         | 0000:C1:00.0  | 12          0    / 0          3161 / 65536         |
++===========================+===============+====================================================+
+| 1     910B3               | Warning       | 90.1        42                0    / 0             |
+| 0                         | 0000:C2:00.0  | 0           0    / 0          3150 / 65536         |
++===========================+===============+====================================================+
++---------------------------+---------------+----------------------------------------------------+
+| NPU     Chip              | Process id    | Process name             | Process memory(MB)      |
++===========================+===============+====================================================+
+| 0       0                 | 4242          | python3                  | 2048                    |
++===========================+===============+====================================================+
+| No running processes found in NPU 1                                                            |
++===========================+===============+====================================================+
+";
+
+    const NPU_310P: &str = "\
+| npu-smi 24.1.rc2.3               Version: 24.1.rc2.3                                           |
+| NPU     Name                | Health          | Power(W)     Temp(C)           Hugepages-Usage(page) |
+| Chip    Device              | Bus-Id          | AICore(%)    Memory-Usage(MB)                        |
++=============================+=================+======================================================+
+| 104     310P3               | OK              | NA           58                0     / 0             |
+| 0       0                   | 0000:00:0D.0    | 0            1782 / 21527                            |
++=============================+=================+======================================================+
+| 112     310P3               | OK              | NA           53                0     / 0             |
+| 0       1                   | 0000:00:0E.0    | 3            1786 / 21527                            |
+| 1       2                   | 0000:00:0F.0    | 5            100  / 21527                            |
++=============================+=================+======================================================+
+";
+
+    #[test]
+    fn parses_npu_smi() {
+        let a = parse_npu(NPU_910B);
+        assert_eq!(a.devices.len(), 2);
+        assert_eq!(a.devices[0].name, "Ascend 910B3");
+        assert_eq!(a.devices[0].util, Some(12.0));
+        assert_eq!(a.devices[0].mem_used, Some(3161 * 1024 * 1024));
+        assert_eq!(a.devices[0].mem_total, Some(65536 * 1024 * 1024));
+        assert_eq!(a.devices[0].power, Some(93.6));
+        assert_eq!(a.devices[0].temp, Some(40.0));
+        assert_eq!(a.devices[1].health.as_deref(), Some("Warning"));
+        assert_eq!(a.procs.get(&4242), Some(&(2048 * 1024 * 1024)));
+
+        let b = parse_npu(NPU_310P);
+        assert_eq!(b.devices.len(), 3);
+        assert_eq!(b.devices[0].name, "Ascend 310P3");
+        assert_eq!(b.devices[0].power, None);
+        assert_eq!(b.devices[0].mem_total, Some(21527 * 1024 * 1024));
+        assert_eq!(b.devices[2].name, "Ascend 310P3 · NPU 112 chip 1");
+        assert_eq!(b.devices[2].util, Some(5.0));
+        assert!(parse_npu("command not found").devices.is_empty());
+    }
 
     #[test]
     fn parses_proc_and_rates() {

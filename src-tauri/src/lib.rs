@@ -8,6 +8,7 @@ mod highlight;
 mod history;
 mod keys;
 mod monitor;
+mod proc;
 mod session;
 mod ssh_config;
 mod store;
@@ -110,6 +111,7 @@ fn session_close(sessions: S<'_>, id: String) {
 
 #[tauri::command]
 fn session_close_all(sessions: S<'_>) {
+    proc::kill_all();
     sessions.close_all();
 }
 
@@ -301,6 +303,91 @@ fn default_highlight_rules() -> Value {
     Value::Array(rules)
 }
 
+// ------------------------------------------------------------------ agents (processes)
+
+#[tauri::command]
+async fn proc_spawn(
+    argv: Vec<String>,
+    cwd: Option<String>,
+    env: Option<std::collections::HashMap<String, String>>,
+    on_event: Channel<proc::ProcEvent>,
+) -> CmdResult<u64> {
+    proc::spawn_local(argv, cwd, env.unwrap_or_default(), on_event).map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+async fn proc_spawn_remote(sessions: S<'_>, session_id: String, command: String, on_event: Channel<proc::ProcEvent>) -> CmdResult<u64> {
+    let conn = sessions.ssh(&session_id)?;
+    proc::spawn_remote(&conn, command, on_event).await.map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+fn proc_write(id: u64, data: String) -> CmdResult<()> {
+    proc::write(id, data).map_err(err)
+}
+
+#[tauri::command]
+fn proc_close_stdin(id: u64) {
+    proc::close_stdin(id)
+}
+
+#[tauri::command]
+fn proc_kill(id: u64) {
+    proc::kill(id)
+}
+
+#[tauri::command]
+async fn proc_run(
+    argv: Vec<String>,
+    cwd: Option<String>,
+    env: Option<std::collections::HashMap<String, String>>,
+    input: Option<String>,
+    timeout_ms: Option<u64>,
+) -> CmdResult<proc::RunOutput> {
+    proc::run(argv, cwd, env.unwrap_or_default(), input, timeout_ms.unwrap_or(120_000)).await.map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+async fn proc_run_remote(sessions: S<'_>, session_id: String, command: String, timeout_ms: Option<u64>) -> CmdResult<proc::RunOutput> {
+    let conn = sessions.ssh(&session_id)?;
+    let t = std::time::Duration::from_millis(timeout_ms.unwrap_or(120_000));
+    let (code, stdout, stderr) = conn.exec_full(&command, t).await.map_err(|e| format!("{e:#}"))?;
+    Ok(proc::RunOutput { code, stdout, stderr })
+}
+
+#[tauri::command]
+fn agents_home() -> CmdResult<String> {
+    proc::home().map(|p| p.to_string_lossy().into_owned()).map_err(err)
+}
+
+#[tauri::command]
+fn agents_log_append(run: String, text: String) -> CmdResult<()> {
+    proc::log_append(&run, &text).map_err(err)
+}
+
+#[tauri::command]
+fn agents_log_read(run: String) -> CmdResult<String> {
+    proc::log_read(&run).map_err(err)
+}
+
+#[tauri::command]
+fn path_stat(path: String) -> proc::PathInfo {
+    proc::stat(&path)
+}
+
+#[tauri::command]
+async fn file_read_text(path: String, max: Option<usize>) -> CmdResult<String> {
+    tauri::async_runtime::spawn_blocking(move || proc::read_text(&path, max.unwrap_or(256 * 1024)))
+        .await
+        .map_err(err)?
+        .map_err(err)
+}
+
+#[tauri::command]
+async fn file_write_text(path: String, text: String) -> CmdResult<()> {
+    tauri::async_runtime::spawn_blocking(move || proc::write_text(&path, &text)).await.map_err(err)?.map_err(err)
+}
+
 // ------------------------------------------------------------------ backup files
 
 /// Read a JSON file the user picked (settings import). Small JSON files only.
@@ -408,7 +495,7 @@ async fn fs_edit(
 
 #[tauri::command]
 fn store_load(name: String) -> CmdResult<Option<Value>> {
-    if !matches!(name.as_str(), "profiles" | "settings" | "session" | "history" | "snippets") {
+    if !matches!(name.as_str(), "profiles" | "settings" | "session" | "history" | "snippets" | "agents") {
         return Err("unknown store".into());
     }
     store::load(&name).map_err(err)
@@ -416,7 +503,7 @@ fn store_load(name: String) -> CmdResult<Option<Value>> {
 
 #[tauri::command]
 fn store_save(name: String, value: Value) -> CmdResult<()> {
-    if !matches!(name.as_str(), "profiles" | "settings" | "session" | "history" | "snippets") {
+    if !matches!(name.as_str(), "profiles" | "settings" | "session" | "history" | "snippets" | "agents") {
         return Err("unknown store".into());
     }
     store::save(&name, &value).map_err(err)
@@ -573,6 +660,19 @@ pub fn run() {
             ssh_copy_id,
             text_file_read,
             text_file_write,
+            proc_spawn,
+            proc_spawn_remote,
+            proc_write,
+            proc_close_stdin,
+            proc_kill,
+            proc_run,
+            proc_run_remote,
+            agents_home,
+            agents_log_append,
+            agents_log_read,
+            path_stat,
+            file_read_text,
+            file_write_text,
             list_serial_ports,
             open_local,
             open_ssh,

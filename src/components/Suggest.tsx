@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { TermSession } from "@/lib/term-session";
 import { cn } from "@/lib/utils";
+import { tr } from "@/lib/i18n";
 
 // biome-ignore lint/suspicious/noExplicitAny: xterm internals
 type Any = any;
@@ -125,9 +126,9 @@ export function SuggestOverlay({ session, left }: { session: TermSession; left: 
               })}
             </div>
             <div className="flex items-center gap-3 border-t border-ov/[0.06] px-2.5 py-1 text-[10.5px] text-muted-foreground">
-              <span>↑↓ select</span>
-              <span>Tab accept</span>
-              <span>Esc / ↑ at top close</span>
+              <span>{tr("↑↓ select")}</span>
+              <span>{tr("Tab accept")}</span>
+              <span>{tr("Esc / ↑ at top close")}</span>
             </div>
           </motion.div>
         )}

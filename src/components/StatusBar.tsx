@@ -7,6 +7,7 @@ import { isViewOpen, groupById, useActivePane, useApp } from "@/store/app";
 import { useActiveMachine } from "./MonitorPanel";
 import { Latency } from "./Latency";
 import { StatusDot } from "./StatusDot";
+import { tr } from "@/lib/i18n";
 
 const label = {
   connecting: "Connecting",
@@ -39,18 +40,18 @@ export function StatusBar() {
         <>
           <span className="flex items-center gap-1.5 px-1">
             <StatusDot status={pane.status} />
-            {label[pane.status]}
+            {tr(label[pane.status])}
           </span>
           <span className="truncate px-1">{pane.subtitle}</span>
           <Latency pane={pane} className="px-1" />
           {broadcast !== "off" && (
             <button type="button" className={cn(item, "text-warning")} onClick={toggleBroadcast}>
-              <Radio /> Broadcasting to {broadcast === "tab" ? "this tab" : "all terminals"}
+              <Radio /> {tr("Broadcasting to")}{" "}{broadcast === "tab" ? tr("this tab") : tr("all terminals")}
             </button>
           )}
           {groupById(pane.group) && (
             <span className={cn(item, "font-medium")} style={{ color: groupById(pane.group)?.color }}>
-              <Radio /> {groupById(pane.group)?.name}
+              <Radio /> {tr(groupById(pane.group)?.name ?? "")}
             </span>
           )}
           <div className="flex-1" />
@@ -61,43 +62,40 @@ export function StatusBar() {
                 className={cn(item, "text-destructive")}
                 onClick={() => pane.logPath && void revealItemInDir(pane.logPath)}
               >
-                <Circle className="animate-pulse fill-current" /> REC
-              </button>
+                <Circle className="animate-pulse fill-current" /> {tr("REC")}</button>
             </Tooltip>
           )}
-          <Tooltip content={pane.logPath ? "Stop logging" : "Log session output to a file"} side="top">
+          <Tooltip content={pane.logPath ? tr("Stop logging") : tr("Log session output to a file")} side="top">
             <button
               type="button"
               disabled={!pane.session.alive}
               className={cn(item, "disabled:opacity-40")}
               onClick={() => void toggleLog(pane.id)}
             >
-              {pane.logPath ? "Stop log" : "Log"}
+              {pane.logPath ? tr("Stop log") : tr("Log")}
             </button>
           </Tooltip>
-          <Tooltip content="Keyword highlighting" side="top">
+          <Tooltip content={tr("Keyword highlighting")} side="top">
             <button
               type="button"
               className={cn(item, pane.highlight && "text-primary")}
               onClick={() => toggleHighlight(pane.id)}
             >
-              <Highlighter /> Highlight
-            </button>
+              <Highlighter /> {tr("Highlight")}</button>
           </Tooltip>
-          <Tooltip content="Line numbers" side="top">
+          <Tooltip content={tr("Line numbers")} side="top">
             <button
               type="button"
               className={cn(item, lineNumbers && "text-primary")}
               onClick={() => void updateSettings({ lineNumbers: !lineNumbers })}
             >
-              <Hash /> Lines
-            </button>
+              <Hash /> {tr("Lines")}</button>
           </Tooltip>
           <span className="px-1.5 tabular-nums">{size && `${size.cols} × ${size.rows}`}</span>
-          <span className="px-1.5">{pane.kind === "ssh" ? "SSH" : pane.kind === "serial" ? "Serial" : "PTY"}</span>
+          <span className="px-1.5">{pane.kind === "ssh" ? tr("SSH") : pane.kind === "serial" ? tr("Serial") : tr("PTY")}</span>
         </>
       ) : (
-        <span className="flex-1 px-1">Ready</span>
+        <span className="flex-1 px-1">{tr("Ready")}</span>
       )}
       <MonitorChip />
     </footer>
@@ -125,7 +123,7 @@ function MonitorChip() {
     </span>
   );
   return (
-    <Tooltip content={`${key === "local" ? "This computer" : snap.host} · resource monitor`} shortcut="monitor" side="top">
+    <Tooltip content={tr("{0} · resource monitor", { 0: key === "local" ? "This computer" : snap.host })} shortcut="monitor" side="top">
       <button
         type="button"
         onClick={() => toggleView("monitor")}
@@ -135,14 +133,14 @@ function MonitorChip() {
         )}
       >
         <span className="flex items-center gap-1">
-          {bar(snap.cpu)}CPU {snap.cpu.toFixed(0)}%
+          {bar(snap.cpu)}{tr("CPU")}{" "}{snap.cpu.toFixed(0)}%
         </span>
         <span className="flex items-center gap-1">
-          {bar(mem)}MEM {mem.toFixed(0)}%
+          {bar(mem)}{tr("MEM")}{" "}{mem.toFixed(0)}%
         </span>
         {gpu != null && (
           <span className="flex items-center gap-1">
-            {bar(gpu)}GPU {gpu.toFixed(0)}%
+            {bar(gpu)}{tr("GPU")}{" "}{gpu.toFixed(0)}%
           </span>
         )}
       </button>

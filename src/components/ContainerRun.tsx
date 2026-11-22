@@ -17,6 +17,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { toast } from "@/lib/overlay";
 import { Field } from "./dialogs";
+import { tr } from "@/lib/i18n";
 
 export interface RunSpec {
   image: string;
@@ -196,7 +197,7 @@ export function RunContainerDialog() {
     setError(null);
     try {
       const out = await open.exec(runArgs(spec));
-      toast({ kind: "success", title: `Started ${spec.name.trim() || spec.image}`, description: out.trim().slice(0, 12) });
+      toast({ kind: "success", title: tr("Started {0}", { 0: spec.name.trim() || spec.image }), description: out.trim().slice(0, 12) });
       open.onDone();
       close();
     } catch (e) {
@@ -214,11 +215,11 @@ export function RunContainerDialog() {
     <Dialog open={!!open} onOpenChange={(o) => !o && close()}>
       <DialogContent className="max-h-[calc(100vh-4rem)] max-w-[min(600px,calc(100%-2rem))] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Run a container</DialogTitle>
+          <DialogTitle>{tr("Run a container")}</DialogTitle>
           <DialogDescription>
             {open?.earlier.length
-              ? "Pre-filled from an earlier container of this image — check it before starting."
-              : "Starts detached (-d). One port / variable / mount per line."}
+              ? tr("Pre-filled from an earlier container of this image — check it before starting.")
+              : tr("Starts detached (-d). One port / variable / mount per line.")}
           </DialogDescription>
         </DialogHeader>
         <form
@@ -229,27 +230,27 @@ export function RunContainerDialog() {
           }}
         >
           <div className="grid grid-cols-[1fr_200px] gap-2">
-            <Field label="Image">
+            <Field label={tr("Image")}>
               <Input value={spec.image} onChange={(e) => setSpec({ ...spec, image: e.target.value })} className="font-mono text-[12px]" />
             </Field>
-            <Field label="Name">
-              <Input autoFocus placeholder="optional" value={spec.name} onChange={(e) => setSpec({ ...spec, name: e.target.value })} />
+            <Field label={tr("Name")}>
+              <Input autoFocus placeholder={tr("optional")} value={spec.name} onChange={(e) => setSpec({ ...spec, name: e.target.value })} />
             </Field>
           </div>
           {open && open.earlier.length > 0 && (
-            <Field label={loadingFrom ? "Copy settings from… (reading)" : "Copy settings from"}>
+            <Field label={loadingFrom ? tr("Copy settings from… (reading)") : tr("Copy settings from")}>
               <Select<string>
                 value={source}
                 onChange={(v) => void load(v)}
                 options={[
                   ...open.earlier.map((c) => ({ value: c.id, label: c.name, hint: c.id.slice(0, 12) })),
-                  { value: "", label: "Nothing — image defaults only" },
+                  { value: "", label: tr("Nothing — image defaults only") },
                 ]}
               />
             </Field>
           )}
           <div className="grid grid-cols-2 gap-2">
-            <Field label="Ports (host:container)">
+            <Field label={tr("Ports (host:container)")}>
               <textarea
                 className={area}
                 rows={2}
@@ -259,45 +260,45 @@ export function RunContainerDialog() {
                 onChange={(e) => setSpec({ ...spec, ports: e.target.value })}
               />
             </Field>
-            <Field label="Mounts (host:container[:ro])">
+            <Field label={tr("Mounts (host:container[:ro])")}>
               <textarea
                 className={area}
                 rows={2}
                 spellCheck={false}
-                placeholder={"/srv/data:/data\nmyvolume:/var/lib/x"}
+                placeholder={tr("/srv/data:/data\nmyvolume:/var/lib/x")}
                 value={spec.volumes}
                 onChange={(e) => setSpec({ ...spec, volumes: e.target.value })}
               />
             </Field>
           </div>
-          <Field label="Environment (KEY=value)">
+          <Field label={tr("Environment (KEY=value)")}>
             <textarea
               className={area}
               rows={3}
               spellCheck={false}
-              placeholder={"TZ=Asia/Shanghai\nPOSTGRES_PASSWORD=…"}
+              placeholder={tr("TZ=Asia/Shanghai\nPOSTGRES_PASSWORD=…")}
               value={spec.env}
               onChange={(e) => setSpec({ ...spec, env: e.target.value })}
             />
           </Field>
           <div className="grid grid-cols-[160px_1fr] gap-2">
-            <Field label="Restart">
+            <Field label={tr("Restart")}>
               <Select<string>
                 value={spec.restart}
                 onChange={(restart) => setSpec({ ...spec, restart })}
                 options={["no", "unless-stopped", "always", "on-failure"].map((v) => ({ value: v, label: v }))}
               />
             </Field>
-            <Field label="Network">
-              <Input placeholder="default bridge" value={spec.network} onChange={(e) => setSpec({ ...spec, network: e.target.value })} />
+            <Field label={tr("Network")}>
+              <Input placeholder={tr("default bridge")} value={spec.network} onChange={(e) => setSpec({ ...spec, network: e.target.value })} />
             </Field>
           </div>
           <div className="grid grid-cols-2 gap-2">
-            <Field label="Command (overrides the image's)">
-              <Input placeholder="optional" value={spec.command} onChange={(e) => setSpec({ ...spec, command: e.target.value })} className="font-mono text-[12px]" />
+            <Field label={tr("Command (overrides the image's)")}>
+              <Input placeholder={tr("optional")} value={spec.command} onChange={(e) => setSpec({ ...spec, command: e.target.value })} className="font-mono text-[12px]" />
             </Field>
-            <Field label="Extra options">
-              <Input placeholder="--memory 512m --cpus 1" value={spec.extra} onChange={(e) => setSpec({ ...spec, extra: e.target.value })} className="font-mono text-[12px]" />
+            <Field label={tr("Extra options")}>
+              <Input placeholder={tr("--memory 512m --cpus 1")} value={spec.extra} onChange={(e) => setSpec({ ...spec, extra: e.target.value })} className="font-mono text-[12px]" />
             </Field>
           </div>
           <pre className="max-h-24 overflow-auto rounded-md bg-inset px-2.5 py-1.5 font-mono text-[11px] leading-relaxed break-all whitespace-pre-wrap text-muted-foreground select-text">
@@ -306,10 +307,10 @@ export function RunContainerDialog() {
           {error && <div className="rounded-md bg-destructive/10 px-2.5 py-1.5 text-[12px] break-words text-destructive">{error}</div>}
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={close}>
-              Cancel
+              {tr("Cancel")}
             </Button>
             <Button type="submit" disabled={busy || !spec.image.trim()}>
-              <Play className="size-3.5" /> {busy ? "Starting…" : "Run"}
+              <Play className="size-3.5" /> {busy ? tr("Starting…") : tr("Run")}
             </Button>
           </DialogFooter>
         </form>

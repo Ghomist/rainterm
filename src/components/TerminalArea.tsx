@@ -1,5 +1,6 @@
 import {
   AlertTriangle,
+  Bot,
   ArrowDown,
   ArrowUp,
   Cable,
@@ -29,7 +30,8 @@ import {
 import { Kbd } from "@/components/ui/input";
 import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { groupById, INPUT_GROUPS, type Layout, type Pane, type Tab, useApp } from "@/store/app";
+import { groupById, INPUT_GROUPS, isTermPane, type Layout, type Pane, type Tab, type TermPane, useApp } from "@/store/app";
+import { AgentsView } from "./AgentsView";
 import { AgentBar } from "./AgentBar";
 import { Backdrop } from "./Backdrop";
 import { Gutter, gutterWidth } from "./Gutter";
@@ -37,6 +39,7 @@ import { Latency } from "./Latency";
 import { openInstallKey } from "./SshKeys";
 import { SuggestOverlay } from "./Suggest";
 import { StatusDot } from "./StatusDot";
+import { tr } from "@/lib/i18n";
 
 export function TerminalArea() {
   const tabs = useApp((s) => s.tabs);
@@ -105,6 +108,16 @@ function PaneSlot({
 }) {
   const pane = useApp((s) => s.panes[paneId]);
   if (!pane) return null;
+  if (!isTermPane(pane))
+    return (
+      <AgentsView
+        pane={pane}
+        focused={tab.activePane === pane.id}
+        visible={tabActive}
+        multi={multi}
+        zoomed={tab.zoomed === pane.id}
+      />
+    );
   return (
     <TerminalPane
       pane={pane}
@@ -154,7 +167,7 @@ function SplitView({
       <div className="relative flex min-h-0 min-w-0" style={{ flex: `${node.ratio} 1 0` }}>
         <LayoutView tab={tab} node={node.a} tabActive={tabActive} multi />
       </div>
-      <Tooltip content="Drag to resize · double-click to reset" side={row ? "right" : "bottom"}>
+      <Tooltip content={tr("Drag to resize · double-click to reset")} side={row ? "right" : "bottom"}>
         <div
           onPointerDown={onDrag}
           onDoubleClick={() => setRatio(tab.id, node.id, 0.5)}
@@ -181,7 +194,7 @@ function TerminalPane({
   multi,
   zoomed,
 }: {
-  pane: Pane;
+  pane: TermPane;
   focused: boolean;
   visible: boolean;
   multi: boolean;
@@ -279,7 +292,7 @@ function TerminalPane({
             </div>
             <div className="min-w-0 flex-1">
               <div className="text-[13px] font-medium">
-                {pane.retry ? "Connection lost" : pane.status === "error" ? "Connection failed" : "Session ended"}
+                {pane.retry ? tr("Connection lost") : pane.status === "error" ? tr("Connection failed") : tr("Session ended")}
               </div>
               <div className="mt-0.5 text-[12px] break-words text-muted-foreground select-text">
                 {pane.retry ? (
@@ -287,18 +300,18 @@ function TerminalPane({
                 ) : pane.status === "error" ? (
                   pane.error
                 ) : (
-                  `Process exited${pane.exitCode != null ? ` with code ${pane.exitCode}` : ""}.`
+                  tr("Process exited{0}.", { 0: pane.exitCode != null ? ` with code ${pane.exitCode}` : "" })
                 )}
               </div>
             </div>
             {pane.retry && (
               <Button size="sm" variant="ghost" onClick={() => useApp.getState().cancelRetry(pane.id)}>
-                Stop
+                {tr("Stop")}
               </Button>
             )}
             <Button size="sm" variant="secondary" onClick={() => reconnect(pane.id)}>
               <RotateCw className="size-3.5" />
-              {pane.retry ? "Now" : "Reconnect"}
+              {pane.retry ? tr("Now") : tr("Reconnect")}
               <Kbd className="ml-0.5 h-4 bg-transparent">↵</Kbd>
             </Button>
           </motion.div>
@@ -320,18 +333,18 @@ function RetryCountdown({ retry, error }: { retry: { attempt: number; at: number
   return (
     <>
       {offline
-        ? "Waiting for the network to come back…"
+        ? tr("Waiting for the network to come back…")
         : left > 0
-          ? `Reconnecting in ${left}s`
-          : "Reconnecting…"}
-      {retry.attempt > 1 && ` (attempt ${retry.attempt})`}
+          ? tr("Reconnecting in {0}s", { 0: left })
+          : tr("Reconnecting…")}
+      {retry.attempt > 1 && tr(" (attempt {0})", { 0: retry.attempt })}
       {error && <span className="mt-0.5 block text-[11.5px] opacity-75">{error}</span>}
     </>
   );
 }
 
 /** Slim per-pane title bar: makes splits self-explanatory (and closable). */
-function PaneHeader({
+export function PaneHeader({
   pane,
   focused,
   multi,
@@ -344,7 +357,7 @@ function PaneHeader({
 }) {
   const { splitActive, closePane, toggleZoom, focusPane } = useApp.getState();
   const group = groupById(pane.group);
-  const Icon = pane.kind === "ssh" ? Server : pane.kind === "serial" ? Cable : SquareTerminal;
+  const Icon = pane.kind === "ssh" ? Server : pane.kind === "serial" ? Cable : pane.kind === "agents" ? Bot : SquareTerminal;
   const act = (fn: () => void) => () => {
     focusPane(pane.id);
     fn();
@@ -373,7 +386,7 @@ function PaneHeader({
               className="flex shrink-0 items-center gap-1 rounded-full px-1.5 py-px text-[10.5px] font-medium"
               style={{ background: `${group.color}26`, color: group.color }}
             >
-              <Users className="size-3" /> {group.name}
+              <Users className="size-3" /> {tr(group.name)}
             </span>
           )}
           <div className="flex-1" />
@@ -383,22 +396,22 @@ function PaneHeader({
               focused ? "opacity-100" : "opacity-0 group-hover/ph:opacity-100",
             )}
           >
-            <HeaderBtn tip="Split right" shortcut="splitRight" onClick={act(() => splitActive("row"))}>
+            <HeaderBtn tip={tr("Split right")} shortcut="splitRight" onClick={act(() => splitActive("row"))}>
               <Columns2 />
             </HeaderBtn>
-            <HeaderBtn tip="Split down" shortcut="splitDown" onClick={act(() => splitActive("col"))}>
+            <HeaderBtn tip={tr("Split down")} shortcut="splitDown" onClick={act(() => splitActive("col"))}>
               <Rows2 />
             </HeaderBtn>
             {multi && (
               <HeaderBtn
-                tip={zoomed ? "Restore layout" : "Maximize pane"}
+                tip={zoomed ? tr("Restore layout") : tr("Maximize pane")}
                 shortcut="zoomPane"
                 onClick={act(toggleZoom)}
               >
                 {zoomed ? <Minimize2 /> : <Maximize2 />}
               </HeaderBtn>
             )}
-            <HeaderBtn tip="Close pane" shortcut="closePane" onClick={() => closePane(pane.id)} danger>
+            <HeaderBtn tip={tr("Close pane")} shortcut="closePane" onClick={() => closePane(pane.id)} danger>
               <X />
             </HeaderBtn>
           </div>
@@ -419,41 +432,41 @@ export function PaneMenu({ pane, multi, zoomed }: { pane: Pane; multi: boolean; 
   return (
     <ContextMenuContent className="min-w-56">
       <ContextMenuItem onSelect={act(() => splitActive("row"))}>
-        <Columns2 /> Split right
+        <Columns2 /> {tr("Split right")}
       </ContextMenuItem>
       <ContextMenuItem onSelect={act(() => splitActive("col"))}>
-        <Rows2 /> Split down
+        <Rows2 /> {tr("Split down")}
       </ContextMenuItem>
       {multi && (
         <ContextMenuItem onSelect={act(toggleZoom)}>
-          {zoomed ? <Minimize2 /> : <Maximize2 />} {zoomed ? "Restore layout" : "Maximize pane"}
+          {zoomed ? <Minimize2 /> : <Maximize2 />} {zoomed ? tr("Restore layout") : tr("Maximize pane")}
         </ContextMenuItem>
       )}
       <ContextMenuSeparator />
       <GroupPicker pane={pane} onPick={(g) => setPaneGroup(pane.id, g)} />
       <ContextMenuSeparator />
-      {pane.kind === "ssh" && pane.session.alive && !pane.session.blocks.integrated && (
+      {pane.kind === "ssh" && pane.session?.alive && !pane.session.blocks.integrated && (
         <ContextMenuItem
           onSelect={act(() => {
-            const why = pane.session.enableIntegration();
+            const why = pane.session?.enableIntegration();
             if (why) toast({ kind: "info", title: why });
           })}
         >
-          <Sparkles /> Enable shell integration
+          <Sparkles /> {tr("Enable shell integration")}
         </ContextMenuItem>
       )}
-      {pane.kind === "ssh" && pane.session.alive && (
+      {pane.kind === "ssh" && pane.session?.alive && (
         <ContextMenuItem onSelect={() => openInstallKey({ paneId: pane.id })}>
-          <KeyRound /> Install my public key here…
+          <KeyRound /> {tr("Install my public key here…")}
         </ContextMenuItem>
       )}
-      {!pane.session.alive && (
+      {pane.session && !pane.session.alive && (
         <ContextMenuItem onSelect={() => reconnect(pane.id)}>
-          <RotateCw /> Reconnect
+          <RotateCw /> {tr("Reconnect")}
         </ContextMenuItem>
       )}
       <ContextMenuItem destructive onSelect={() => closePane(pane.id)}>
-        <X /> Close pane
+        <X /> {tr("Close pane")}
       </ContextMenuItem>
     </ContextMenuContent>
   );
@@ -464,11 +477,11 @@ export function GroupPicker({ pane, onPick }: { pane: Pane; onPick: (g: string |
   return (
     <div className="px-2 pt-1 pb-1.5">
       <div className="pb-1.5 text-[11px] font-medium text-muted-foreground">
-        Input group · typing goes to every member
+        {tr("Input group · typing goes to every member")}
       </div>
       <div className="flex gap-1">
         {INPUT_GROUPS.map((g) => (
-          <Tooltip key={g.id} content={pane.group === g.id ? `Leave ${g.name}` : `Join ${g.name}`}>
+          <Tooltip key={g.id} content={pane.group === g.id ? tr("Leave {0}", { 0: tr(g.name) }) : tr("Join {0}", { 0: tr(g.name) })}>
           <button
             type="button"
             onClick={() => onPick(pane.group === g.id ? null : g.id)}
@@ -530,7 +543,7 @@ function SearchBar() {
   });
   const [q, setQ] = useState("");
   const [result, setResult] = useState<{ index: number; count: number } | null>(null);
-  const search = pane?.session.search;
+  const search = pane?.session?.search;
 
   useEffect(() => {
     if (!search) return;
@@ -554,12 +567,12 @@ function SearchBar() {
   const close = () => {
     search?.clearDecorations();
     set({ searchOpen: false });
-    pane?.session.focus();
+    pane?.session?.focus();
   };
 
   return (
     <AnimatePresence>
-      {open && pane && (
+      {open && pane?.session && (
         <motion.div
           initial={{ opacity: 0, y: -8 }}
           animate={{ opacity: 1, y: 0 }}
@@ -579,7 +592,7 @@ function SearchBar() {
               if (e.key === "Enter") go(e.shiftKey ? -1 : 1);
               if (e.key === "Escape") close();
             }}
-            placeholder="Find"
+            placeholder={tr("Find")}
             spellCheck={false}
             className="h-7 w-52 rounded-md bg-inset px-2 text-[12.5px] outline-none placeholder:text-muted-foreground/60"
           />
@@ -611,28 +624,28 @@ function EmptyState() {
       exit={{ opacity: 0 }}
       className="absolute inset-0 flex flex-col items-center justify-center gap-5 text-muted-foreground"
     >
-      <div className="text-3xl font-light tracking-tight text-foreground/80">rainterm</div>
+      <div className="text-3xl font-light tracking-tight text-foreground/80">{tr("rainterm")}</div>
       <div className="grid grid-cols-[auto_auto] gap-x-6 gap-y-2 text-[12.5px]">
         <button type="button" className="text-left hover:text-foreground" onClick={() => openLocal()}>
-          New local tab
+          {tr("New local tab")}
         </button>
-        <Kbd>Ctrl Shift T</Kbd>
+        <Kbd>{tr("Ctrl Shift T")}</Kbd>
         <button
           type="button"
           className="text-left hover:text-foreground"
           onClick={() => set({ profileEditor: { kind: "ssh" } })}
         >
-          New SSH session
+          {tr("New SSH session")}
         </button>
-        <Kbd>Ctrl Shift N</Kbd>
+        <Kbd>{tr("Ctrl Shift N")}</Kbd>
         <button
           type="button"
           className="text-left hover:text-foreground"
           onClick={() => set({ paletteOpen: true })}
         >
-          Command palette
+          {tr("Command palette")}
         </button>
-        <Kbd>Ctrl Shift P</Kbd>
+        <Kbd>{tr("Ctrl Shift P")}</Kbd>
       </div>
     </motion.div>
   );

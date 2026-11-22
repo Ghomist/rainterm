@@ -13,6 +13,7 @@ export interface ActionDef {
 
 export const ACTIONS: ActionDef[] = [
   { id: "newTab", label: "New tab", group: "Tabs & panes", keys: ["Ctrl+Shift+T"] },
+  { id: "openAgents", label: "Open agents session", group: "Tabs & panes", keys: ["Ctrl+Shift+A"] },
   { id: "closePane", label: "Close pane", group: "Tabs & panes", keys: ["Ctrl+Shift+W"] },
   { id: "nextTab", label: "Next tab", group: "Tabs & panes", keys: ["Ctrl+Tab"] },
   { id: "prevTab", label: "Previous tab", group: "Tabs & panes", keys: ["Ctrl+Shift+Tab"] },

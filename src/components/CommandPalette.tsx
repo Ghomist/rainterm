@@ -1,6 +1,7 @@
 import { Command } from "cmdk";
 import {
   Activity,
+  Bot,
   ArrowLeftRight,
   Cable,
   Columns2,
@@ -37,7 +38,8 @@ import { commands } from "@/lib/history";
 import { bindingsOf, keycaps } from "@/lib/keymap";
 import { useSnippets } from "@/lib/snippets";
 import { sendSnippet } from "./SnippetVars";
-import { useApp } from "@/store/app";
+import { isTermPane, useApp } from "@/store/app";
+import { tr } from "@/lib/i18n";
 
 export function CommandPalette() {
   const open = useApp((s) => s.paletteOpen);
@@ -57,7 +59,9 @@ export function CommandPalette() {
   }, [open, loadSnippets]);
 
   const tab = tabs.find((t) => t.id === activeTabId);
-  const pane = tab ? panes[tab.activePane] : undefined;
+  // terminal commands below act on the active pane only when it's a terminal
+  const active = tab ? panes[tab.activePane] : undefined;
+  const pane = isTermPane(active) ? active : undefined;
 
   const run = (fn: () => void) => {
     set({ paletteOpen: false });
@@ -74,29 +78,28 @@ export function CommandPalette() {
           aria-describedby={undefined}
           className="fixed top-[14%] left-1/2 z-50 w-[min(560px,calc(100%-2rem))] -translate-x-1/2 overflow-hidden rounded-xl border border-ov/10 bg-popover shadow-2xl shadow-shadow outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-[0.97] data-[state=open]:zoom-in-[0.97] data-[state=open]:slide-in-from-top-2 duration-150"
         >
-          <DialogPrimitive.Title className="sr-only">Command palette</DialogPrimitive.Title>
+          <DialogPrimitive.Title className="sr-only">{tr("Command palette")}</DialogPrimitive.Title>
           <Command loop className="flex flex-col">
             <Command.Input
               value={search}
               onValueChange={setSearch}
-              placeholder="Type a command, session name or user@host…"
+              placeholder={tr("Type a command, session name or user@host…")}
               className="h-11 border-b border-border bg-transparent px-4 text-[13.5px] outline-none placeholder:text-muted-foreground/60"
             />
             <Command.List className="max-h-[min(420px,60vh)] overflow-y-auto p-1.5 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:pt-2 [&_[cmdk-group-heading]]:pb-1 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground">
               <Command.Empty className="py-8 text-center text-[12.5px] text-muted-foreground">
-                No results
-              </Command.Empty>
+                {tr("No results")}</Command.Empty>
 
               {looksLikeHost && (
-                <Command.Group heading="Quick connect">
+                <Command.Group heading={tr("Quick connect")}>
                   <Item value={`quick ${search}`} onSelect={() => run(() => st.quickConnect(search))}>
-                    <Plug /> Connect to {search.trim()}
+                    <Plug /> {tr("Connect to")}{" "}{search.trim()}
                   </Item>
                 </Command.Group>
               )}
 
               {tabs.length > 1 && (
-                <Command.Group heading="Tabs">
+                <Command.Group heading={tr("Tabs")}>
                   {tabs.map((t) => {
                     const p = panes[t.activePane];
                     if (!p) return null;
@@ -115,7 +118,7 @@ export function CommandPalette() {
               )}
 
               {profiles.length > 0 && (
-                <Command.Group heading="Sessions">
+                <Command.Group heading={tr("Sessions")}>
                   {profiles.map((p) => (
                     <Item
                       key={p.id}
@@ -131,7 +134,10 @@ export function CommandPalette() {
                 </Command.Group>
               )}
 
-              <Command.Group heading="Local shells">
+              <Command.Group heading={tr("Local shells")}>
+                <Item value="agents session multi agent" onSelect={() => run(() => st.openAgents())}>
+                  <Bot /> {tr("Agents")}
+                </Item>
                 {shells.map((sh) => (
                   <Item key={sh.id} value={`shell ${sh.name}`} onSelect={() => run(() => st.openLocal(sh))}>
                     <SquareTerminal /> {sh.name}
@@ -140,7 +146,7 @@ export function CommandPalette() {
               </Command.Group>
 
               {pane && snippets.length > 0 && (
-                <Command.Group heading="Quick commands">
+                <Command.Group heading={tr("Quick commands")}>
                   {snippets.map((sn) => (
                     <Item
                       key={`s:${sn.id}`}
@@ -163,7 +169,7 @@ export function CommandPalette() {
               )}
 
               {pane && search.trim() && (
-                <Command.Group heading="Recent commands">
+                <Command.Group heading={tr("Recent commands")}>
                   {commands(pane.session.hostKey)
                     .slice(0, 400)
                     .map((cmd) => (
@@ -179,9 +185,9 @@ export function CommandPalette() {
               )}
 
               {pane && (
-                <Command.Group heading="Current terminal">
+                <Command.Group heading={tr("Current terminal")}>
                   <Item value="find search" onSelect={() => run(() => set({ searchOpen: true }))}>
-                    <Search /> Find… <Keys id="find" />
+                    <Search /> {tr("Find…")}{" "}<Keys id="find" />
                   </Item>
                   {pane.kind === "ssh" && !pane.session.blocks.integrated && (
                     <Item
@@ -193,79 +199,74 @@ export function CommandPalette() {
                         })
                       }
                     >
-                      <Sparkles /> Enable shell integration in this terminal
-                    </Item>
+                      <Sparkles /> {tr("Enable shell integration in this terminal")}</Item>
                   )}
                   <Item value="fold all output" onSelect={() => run(() => pane.session.blocks.foldAll())}>
-                    <FoldVertical /> Fold all command output <Keys id="foldAll" />
+                    <FoldVertical /> {tr("Fold all command output")}{" "}<Keys id="foldAll" />
                   </Item>
                   <Item value="unfold all output" onSelect={() => run(() => pane.session.blocks.unfoldAll())}>
-                    <UnfoldVertical /> Unfold all <Keys id="unfoldAll" />
+                    <UnfoldVertical /> {tr("Unfold all")}{" "}<Keys id="unfoldAll" />
                   </Item>
                   <Item value="split right" onSelect={() => run(() => st.splitActive("row"))}>
-                    <Columns2 /> Split right <Keys id="splitRight" />
+                    <Columns2 /> {tr("Split right")}{" "}<Keys id="splitRight" />
                   </Item>
                   <Item value="split down" onSelect={() => run(() => st.splitActive("col"))}>
-                    <Rows2 /> Split down <Keys id="splitDown" />
+                    <Rows2 /> {tr("Split down")}{" "}<Keys id="splitDown" />
                   </Item>
                   <Item value="toggle highlight keywords" onSelect={() => run(() => st.toggleHighlight(pane.id))}>
-                    <Highlighter /> {pane.highlight ? "Disable" : "Enable"} keyword highlighting
-                  </Item>
+                    <Highlighter /> {pane.highlight ? tr("Disable") : tr("Enable")} {tr("keyword highlighting")}</Item>
                   <Item value="session log record" onSelect={() => run(() => void st.toggleLog(pane.id))}>
-                    <FileText /> {pane.logPath ? "Stop logging" : "Start logging to file"}
+                    <FileText /> {pane.logPath ? tr("Stop logging") : tr("Start logging to file")}
                   </Item>
                   <Item value="reconnect" onSelect={() => run(() => st.reconnect(pane.id))}>
-                    <RotateCw /> Reconnect
-                  </Item>
+                    <RotateCw /> {tr("Reconnect")}</Item>
                   <Item value="close pane" onSelect={() => run(() => st.closePane(pane.id))}>
-                    <X /> Close pane <Keys id="closePane" />
+                    <X /> {tr("Close pane")}{" "}<Keys id="closePane" />
                   </Item>
                 </Command.Group>
               )}
 
-              <Command.Group heading="App">
+              <Command.Group heading={tr("App")}>
                 <Item value="new ssh session" onSelect={() => run(() => set({ profileEditor: { kind: "ssh" } }))}>
-                  <Plus /> New SSH session… <Keys id="newSsh" />
+                  <Plus /> {tr("New SSH session…")}{" "}<Keys id="newSsh" />
                 </Item>
                 <Item value="new serial session" onSelect={() => run(() => set({ profileEditor: { kind: "serial" } }))}>
-                  <Cable /> New serial session…
-                </Item>
+                  <Cable /> {tr("New serial session…")}</Item>
                 <Item value="broadcast input sync" onSelect={() => run(() => st.toggleBroadcast())}>
-                  <Radio /> Toggle broadcast input <Keys id="broadcast" />
+                  <Radio /> {tr("Toggle broadcast input")}{" "}<Keys id="broadcast" />
                 </Item>
                 <Item value="resource monitor cpu memory disk gpu processes" onSelect={() => run(() => st.toggleView("monitor"))}>
-                  <Activity /> Toggle resource monitor <Keys id="monitor" />
+                  <Activity /> {tr("Toggle resource monitor")}{" "}<Keys id="monitor" />
                 </Item>
                 <Item value="quick commands snippets" onSelect={() => run(() => st.toggleView("snippets"))}>
-                  <Zap /> Toggle quick commands <Keys id="snippets" />
+                  <Zap /> {tr("Toggle quick commands")}{" "}<Keys id="snippets" />
                 </Item>
                 <Item value="toggle files sftp" onSelect={() => run(() => st.toggleView("files"))}>
-                  <FolderTree /> Toggle file panel <Keys id="files" />
+                  <FolderTree /> {tr("Toggle file panel")}{" "}<Keys id="files" />
                 </Item>
                 <Item value="toggle hide show side panels sidebar" onSelect={() => run(() => st.togglePanels())}>
-                  <PanelLeft /> Hide / show side panels <Keys id="sidebar" />
+                  <PanelLeft /> {tr("Hide / show side panels")}{" "}<Keys id="sidebar" />
                 </Item>
                 <Item value="ports listening network forward" onSelect={() => run(() => st.toggleView("ports", true))}>
-                  <Network /> Ports <Keys id="ports" />
+                  <Network /> {tr("Ports")}{" "}<Keys id="ports" />
                 </Item>
                 <Item value="containers docker podman" onSelect={() => run(() => st.toggleView("containers", true))}>
-                  <Boxes /> Containers <Keys id="containers" />
+                  <Boxes /> {tr("Containers")}{" "}<Keys id="containers" />
                 </Item>
                 <Item value="kubernetes k8s kubectl pods" onSelect={() => run(() => st.toggleView("k8s", true))}>
-                  <Ship /> Kubernetes <Keys id="k8s" />
+                  <Ship /> {tr("Kubernetes")}{" "}<Keys id="k8s" />
                 </Item>
                 <Item
                   value="toggle line numbers"
                   onSelect={() => run(() => void st.updateSettings({ lineNumbers: !settings.lineNumbers }))}
                 >
-                  <Hash /> Toggle line numbers
-                </Item>
+                  <Hash /> {tr("Toggle line numbers")}</Item>
                 <Item value="settings preferences" onSelect={() => run(() => set({ settingsOpen: true }))}>
-                  <Settings2 /> Settings <Keys id="settings" />
+                  <Settings2 /> {tr("Settings")}{" "}<Keys id="settings" />
                 </Item>
                 {settings.lockHash && (
                   <Item value="lock" onSelect={() => run(() => st.lock())}>
-                    <Lock /> Lock <Keys id="lock" />
+                    <Lock /> {tr("Lock")}{" "}<Keys id="lock" />
                   </Item>
                 )}
               </Command.Group>

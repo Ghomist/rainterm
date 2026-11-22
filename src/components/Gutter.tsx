@@ -27,6 +27,7 @@ import type { BlockBadges } from "@/lib/settings";
 import type { TermSession } from "@/lib/term-session";
 import { cn, fmtDuration } from "@/lib/utils";
 import { useApp } from "@/store/app";
+import { tr } from "@/lib/i18n";
 
 // biome-ignore lint/suspicious/noExplicitAny: xterm internals
 type Any = any;
@@ -299,29 +300,29 @@ export const Gutter = memo(function Gutter({
           {menuRow && menuBlock ? (
             <>
               <ContextMenuItem onSelect={() => void navigator.clipboard.writeText(blocks.output(menuRow.block))}>
-                <Copy /> Copy output
+                <Copy /> {tr("Copy output")}
               </ContextMenuItem>
               <ContextMenuItem
                 disabled={!menuBlock.command}
                 onSelect={() => void navigator.clipboard.writeText(menuBlock.command)}
               >
-                <TerminalSquare /> Copy command
+                <TerminalSquare /> {tr("Copy command")}
               </ContextMenuItem>
               <ContextMenuItem onSelect={() => void navigator.clipboard.writeText(blocks.text(menuRow.block))}>
-                <ClipboardCopy /> Copy command + output
+                <ClipboardCopy /> {tr("Copy command + output")}
               </ContextMenuItem>
               <ContextMenuSeparator />
               <ContextMenuItem disabled={!menuRow.canFold} onSelect={() => blocks.toggle(menuRow.block)}>
                 {menuRow.folded ? <UnfoldVertical /> : <FoldVertical />}
-                {menuRow.folded ? "Unfold output" : "Fold output"}
+                {menuRow.folded ? tr("Unfold output") : tr("Fold output")}
               </ContextMenuItem>
             </>
           ) : null}
           <ContextMenuItem onSelect={() => blocks.foldAll()}>
-            <FoldVertical /> Fold all
+            <FoldVertical /> {tr("Fold all")}
           </ContextMenuItem>
           <ContextMenuItem onSelect={() => blocks.unfoldAll()}>
-            <UnfoldVertical /> Unfold all
+            <UnfoldVertical /> {tr("Unfold all")}
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
@@ -351,7 +352,7 @@ export const Gutter = memo(function Gutter({
                   className="flex h-full items-center gap-1 rounded-full border border-primary/25 bg-[color-mix(in_oklab,var(--primary)_14%,var(--surface))] px-2 text-[10.5px] text-primary transition hover:bg-[color-mix(in_oklab,var(--primary)_24%,var(--surface))]"
                 >
                   <UnfoldVertical className="size-3" />
-                  {r.folded} lines folded
+                  {r.folded} {tr("lines folded")}
                 </button>
               )}
               <Badge
@@ -434,7 +435,7 @@ function Badge({
     setCopied(true);
   };
   return (
-    <Tooltip content={copied ? "Copied" : "Copy output · Shift+click: with the command"} side="left">
+    <Tooltip content={copied ? tr("Copied") : tr("Copy output · Shift+click: with the command")} side="left">
       <button
         type="button"
         tabIndex={-1}
@@ -516,7 +517,7 @@ function StickyHeader({
       >
         {lineNumbers ? session.blocks.lineNumber(b.marker.line) : ""}
       </span>
-      <Tooltip content="Scroll to this command" side="bottom">
+      <Tooltip content={tr("Scroll to this command")} side="bottom">
         <span
           className="min-w-0 flex-1 truncate whitespace-pre text-foreground/85"
           style={{ ...font, paddingLeft: Math.max(0, textLeft), lineHeight: `${cell}px` }}
@@ -559,7 +560,7 @@ const GutterRow = memo(function GutterRow({
     >
       {lineNumbers &&
         (row.failed ? (
-          <Tooltip content={`Exit code ${row.exit}`} side="right">
+          <Tooltip content={tr("Exit code {0}", { 0: row.exit })} side="right">
             {num}
           </Tooltip>
         ) : (

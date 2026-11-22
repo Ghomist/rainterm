@@ -2,6 +2,7 @@ import { XIcon } from "lucide-react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import type * as React from "react";
 import { cn } from "@/lib/utils";
+import { tr } from "@/lib/i18n";
 
 const Dialog = DialogPrimitive.Root;
 const DialogTrigger = DialogPrimitive.Trigger;
@@ -28,7 +29,7 @@ function DialogContent({
         {showClose && (
           <DialogPrimitive.Close className="absolute top-3.5 right-3.5 rounded-md p-1 text-muted-foreground opacity-70 transition hover:bg-accent hover:opacity-100">
             <XIcon className="size-4" />
-            <span className="sr-only">Close</span>
+            <span className="sr-only">{tr("Close")}</span>
           </DialogPrimitive.Close>
         )}
       </DialogPrimitive.Content>

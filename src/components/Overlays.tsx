@@ -13,6 +13,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { closeDialog, dismissToast, type Toast, useOverlay } from "@/lib/overlay";
 import { cn } from "@/lib/utils";
+import { tr } from "@/lib/i18n";
 
 export function Overlays() {
   return (
@@ -107,10 +108,10 @@ function DialogHost() {
               variant="ghost"
               onClick={() => closeDialog(dialog?.kind === "prompt" ? null : false)}
             >
-              Cancel
+              {tr("Cancel")}
             </Button>
             <Button type="submit" variant={danger ? "destructive" : "default"} autoFocus={dialog?.kind === "confirm"}>
-              {opts?.confirmLabel ?? "OK"}
+              {opts?.confirmLabel ?? tr("OK")}
             </Button>
           </DialogFooter>
         </form>

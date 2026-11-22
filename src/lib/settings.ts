@@ -1,12 +1,13 @@
+import type { LangSetting } from "./i18n";
 import type { HighlightRule } from "./ipc";
 
 /** Tool views that live in the side docks. */
-export type ViewId = "sessions" | "agent" | "files" | "monitor" | "snippets" | "ports" | "containers" | "k8s";
+export type ViewId = "sessions" | "agent" | "files" | "monitor" | "snippets" | "ports" | "containers" | "k8s" | "agents";
 export type DockSide = "left" | "right";
-export const ALL_VIEWS: ViewId[] = ["sessions", "agent", "files", "monitor", "snippets", "ports", "containers", "k8s"];
+export const ALL_VIEWS: ViewId[] = ["sessions", "agent", "files", "monitor", "snippets", "ports", "containers", "k8s", "agents"];
 export const DEFAULT_DOCK: Record<DockSide, ViewId[]> = {
   left: ["sessions", "agent", "files", "snippets"],
-  right: ["monitor", "ports", "containers", "k8s"],
+  right: ["agents", "monitor", "ports", "containers", "k8s"],
 };
 
 /** A saved outbound proxy; its password (if any) lives in the OS keychain as `proxy:<id>`. */
@@ -157,6 +158,8 @@ export interface Settings {
   notifyAfterSeconds: number;
   /** Reconnect SSH sessions by themselves when the connection drops. */
   autoReconnect: boolean;
+  /** UI language ("system" = the OS language). */
+  language: LangSetting;
 }
 
 export const DEFAULT_FONT =
@@ -216,6 +219,7 @@ export const DEFAULT_SETTINGS: Settings = {
   stickyCommand: true,
   notifyAfterSeconds: 10,
   autoReconnect: true,
+  language: "system",
 };
 
 /** Every view exactly once, each in a dock; new views land in their default dock. */

@@ -30,7 +30,7 @@ import {
 import { PanelHeader, SearchField } from "@/components/ui/panel";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip } from "@/components/ui/tooltip";
-import { ipc, type MonitorDisk, type MonitorProc, type MonitorSnapshot } from "@/lib/ipc";
+import { ipc, type MonitorDisk, type MonitorGpu, type MonitorProc, type MonitorSnapshot } from "@/lib/ipc";
 import {
   fmtBytes,
   fmtRate,
@@ -43,6 +43,7 @@ import {
 import { confirm, toast } from "@/lib/overlay";
 import { cn } from "@/lib/utils";
 import { useActivePane, useApp } from "@/store/app";
+import { tr } from "@/lib/i18n";
 
 export function useActiveMachine(): { key: string | null; state: MachineState | null } {
   const pane = useActivePane();
@@ -61,33 +62,33 @@ export function MonitorPanel() {
   const snap = state?.snap;
   const [tab, setTab] = useState<TabId>("overview");
   const tabs: { id: TabId; label: string; icon: React.ReactNode }[] = [
-    { id: "overview", label: "Overview", icon: <Activity /> },
-    { id: "cpu", label: "CPU", icon: <Cpu /> },
-    { id: "memory", label: "Memory", icon: <MemoryStick /> },
-    ...(snap?.gpus.length ? [{ id: "gpu" as const, label: "GPU", icon: <Gpu /> }] : []),
-    { id: "disk", label: "Disk", icon: <HardDrive /> },
+    { id: "overview", label: tr("Overview"), icon: <Activity /> },
+    { id: "cpu", label: tr("CPU"), icon: <Cpu /> },
+    { id: "memory", label: tr("Memory"), icon: <MemoryStick /> },
+    ...(snap?.gpus.length ? [{ id: "gpu" as const, label: acceleratorLabel(snap.gpus), icon: <Gpu /> }] : []),
+    { id: "disk", label: tr("Disk"), icon: <HardDrive /> },
   ];
   const current = tabs.some((t) => t.id === tab) ? tab : "overview";
 
   return (
     <div className="@container flex min-h-0 flex-1 flex-col">
-      <PanelHeader title="Monitor" icon={<Activity />}>
-        {snap && <span className="pr-1.5 text-[11px] text-muted-foreground">up {fmtUptime(snap.uptime)}</span>}
+      <PanelHeader title={tr("Monitor")} icon={<Activity />}>
+        {snap && <span className="pr-1.5 text-[11px] text-muted-foreground">{tr("up")}{" "}{fmtUptime(snap.uptime)}</span>}
       </PanelHeader>
       {!key ? (
         <Empty
           text={
             pane?.kind === "serial"
-              ? "Serial sessions have no host to monitor"
+              ? tr("Serial sessions have no host to monitor")
               : pane?.kind === "ssh" && pane.status === "connected"
-                ? "Remote monitoring is turned off in Settings"
-                : "Connect a session to see its machine"
+                ? tr("Remote monitoring is turned off in Settings")
+                : tr("Connect a session to see its machine")
           }
         />
       ) : state?.error && !snap ? (
         <Empty text={state.error} error />
       ) : !snap ? (
-        <Empty text="Collecting…" />
+        <Empty text={tr("Collecting…")} />
       ) : (
         <>
           <div className="px-2 pb-2">
@@ -196,7 +197,7 @@ function TabStrip({ active, count, children }: { active: string; count: number; 
     <button
       type="button"
       tabIndex={-1}
-      aria-label={side === "left" ? "Scroll tabs left" : "Scroll tabs right"}
+      aria-label={side === "left" ? tr("Scroll tabs left") : tr("Scroll tabs right")}
       onClick={() => ref.current?.scrollBy({ left: (side === "left" ? -1 : 1) * 96, behavior: "smooth" })}
       className={cn(
         "press absolute inset-y-0.5 z-10 flex w-5 items-center justify-center rounded-md bg-inset text-muted-foreground transition-opacity duration-150 hover:text-foreground [&_svg]:size-3.5",
@@ -243,22 +244,22 @@ function Overview({ state, onOpen }: { state: MachineState; onOpen: (t: TabId) =
   return (
     <>
       <div className="grid grid-cols-2 gap-1.5">
-        <Tile icon={<Cpu />} label="CPU" value={`${snap.cpu.toFixed(0)}%`} sub={snap.load ? `load ${snap.load.map((l) => l.toFixed(2)).join(" ")}` : `${snap.cores.length} cores`} onClick={() => onOpen("cpu")} />
-        <Tile icon={<MemoryStick />} label="Memory" value={`${memPct.toFixed(0)}%`} sub={`${fmtBytes(snap.memUsed)} / ${fmtBytes(snap.memTotal)}`} onClick={() => onOpen("memory")} />
+        <Tile icon={<Cpu />} label={tr("CPU")} value={`${snap.cpu.toFixed(0)}%`} sub={snap.load ? tr("load {0}", { 0: snap.load.map((l) => l.toFixed(2)).join(" ") }) : tr("{0} cores", { 0: snap.cores.length })} onClick={() => onOpen("cpu")} />
+        <Tile icon={<MemoryStick />} label={tr("Memory")} value={`${memPct.toFixed(0)}%`} sub={`${fmtBytes(snap.memUsed)} / ${fmtBytes(snap.memTotal)}`} onClick={() => onOpen("memory")} />
         {gpu ? (
-          <Tile icon={<Gpu />} label="GPU" value={gpu.util != null ? `${gpu.util.toFixed(0)}%` : "–"} sub={gpu.temp != null ? `${gpu.temp.toFixed(0)}°C · ${gpu.name}` : gpu.name} onClick={() => onOpen("gpu")} />
+          <Tile icon={<Gpu />} label={gpu.kind === "npu" ? tr("NPU") : tr("GPU")} value={gpu.util != null ? `${gpu.util.toFixed(0)}%` : "–"} sub={gpu.temp != null ? `${gpu.temp.toFixed(0)}°C · ${gpu.name}` : gpu.name} onClick={() => onOpen("gpu")} />
         ) : (
-          <Tile icon={<ArrowDown />} label="Network" value={fmtRate(snap.netRx)} sub={`↑ ${fmtRate(snap.netTx)}`} />
+          <Tile icon={<ArrowDown />} label={tr("Network")} value={fmtRate(snap.netRx)} sub={`↑ ${fmtRate(snap.netTx)}`} />
         )}
-        <Tile icon={<HardDrive />} label="Disk" value={rootDisk ? `${pct(rootDisk.used, rootDisk.total).toFixed(0)}%` : "–"} sub={rootDisk ? `${fmtBytes(rootDisk.avail)} free on ${rootDisk.mount}` : ""} onClick={() => onOpen("disk")} />
+        <Tile icon={<HardDrive />} label={tr("Disk")} value={rootDisk ? `${pct(rootDisk.used, rootDisk.total).toFixed(0)}%` : "–"} sub={rootDisk ? tr("{0} free on {1}", { 0: fmtBytes(rootDisk.avail), 1: rootDisk.mount }) : ""} onClick={() => onOpen("disk")} />
       </div>
-      <Card title="CPU">
+      <Card title={tr("CPU")}>
         <AreaChart samples={h} pick={(s) => s.cpu} max={100} format={(v) => `${v.toFixed(0)}%`} />
       </Card>
-      <Card title="Memory">
+      <Card title={tr("Memory")}>
         <AreaChart samples={h} pick={(s) => s.mem} max={100} format={(v) => `${v.toFixed(0)}%`} />
       </Card>
-      <Card title="Network">
+      <Card title={tr("Network")}>
         <NetChart samples={h} />
       </Card>
     </>
@@ -269,14 +270,14 @@ function CpuTab({ state, machine }: { state: MachineState; machine: string }) {
   const snap = state.snap!;
   return (
     <>
-      <Card title="Usage" detail={snap.cpuName}>
+      <Card title={tr("Usage")} detail={snap.cpuName}>
         <AreaChart samples={state.history} pick={(s) => s.cpu} max={100} format={(v) => `${v.toFixed(0)}%`} />
         <div className="flex justify-between text-[11px] text-muted-foreground tabular-nums">
-          <span>{snap.cores.length} logical cores</span>
-          {snap.load && <span>load {snap.load.map((l) => l.toFixed(2)).join(" · ")}</span>}
+          <span>{snap.cores.length} {tr("logical cores")}</span>
+          {snap.load && <span>{tr("load")}{" "}{snap.load.map((l) => l.toFixed(2)).join(" · ")}</span>}
         </div>
       </Card>
-      <Card title="Per core">
+      <Card title={tr("Per core")}>
         <Cores cores={snap.cores} />
       </Card>
       <Processes procs={snap.procs} machine={machine} memTotal={snap.memTotal} sortBy="cpu" />
@@ -288,40 +289,77 @@ function MemoryTab({ state, machine }: { state: MachineState; machine: string })
   const snap = state.snap!;
   return (
     <>
-      <Card title="Usage">
+      <Card title={tr("Usage")}>
         <AreaChart samples={state.history} pick={(s) => s.mem} max={100} format={(v) => `${v.toFixed(0)}%`} />
-        <Meter label="RAM" used={snap.memUsed} total={snap.memTotal} />
-        {snap.swapTotal > 0 && <Meter label="Swap" used={snap.swapUsed} total={snap.swapTotal} />}
+        <Meter label={tr("RAM")} used={snap.memUsed} total={snap.memTotal} />
+        {snap.swapTotal > 0 && <Meter label={tr("Swap")} used={snap.swapUsed} total={snap.swapTotal} />}
       </Card>
       <Processes procs={snap.procs} machine={machine} memTotal={snap.memTotal} sortBy="mem" />
     </>
   );
 }
 
+/** "GPU", "NPU" (Huawei Ascend), or "GPU / NPU" when a machine has both. */
+function acceleratorLabel(gpus: MonitorGpu[]) {
+  const npu = gpus.some((g) => g.kind === "npu");
+  const gpu = gpus.some((g) => g.kind !== "npu");
+  return npu && gpu ? tr("GPU / NPU") : npu ? tr("NPU") : tr("GPU");
+}
+
 function GpuTab({ state, machine }: { state: MachineState; machine: string }) {
   const snap = state.snap!;
   const gpuProcs = snap.procs.filter((p) => p.gpu != null || p.gpuMem != null);
+  const allNpu = snap.gpus.every((g) => g.kind === "npu");
+  // Number each kind on its own: GPU 0, GPU 1, NPU 0…
+  const seen = { gpu: 0, npu: 0 };
   return (
     <>
-      {snap.gpus.map((g, i) => (
-        // biome-ignore lint/suspicious/noArrayIndexKey: GPU index is its identity
-        <Card key={i} title={snap.gpus.length > 1 ? `GPU ${i}` : "GPU"} detail={g.name}>
-          {i === 0 && g.util != null && (
-            <AreaChart samples={state.history} pick={(s) => s.gpu ?? 0} max={100} format={(v) => `${v.toFixed(0)}%`} />
-          )}
-          {g.memTotal != null && g.memUsed != null && <Meter label="VRAM" used={g.memUsed} total={g.memTotal} />}
-          {g.temp != null && (
-            <div className="flex justify-between text-[11px] text-muted-foreground">
-              <span>Temperature</span>
-              <span className={cn("tabular-nums", g.temp > 80 && "text-warning")}>{g.temp.toFixed(0)}°C</span>
-            </div>
-          )}
-        </Card>
-      ))}
+      {snap.gpus.map((g, i) => {
+        const npu = g.kind === "npu";
+        const n = seen[g.kind]++;
+        const several = snap.gpus.filter((x) => x.kind === g.kind).length > 1;
+        const title = npu ? (several ? tr("NPU {0}", { 0: n }) : tr("NPU")) : several ? tr("GPU {0}", { 0: n }) : tr("GPU");
+        const sick = g.health && g.health.toUpperCase() !== "OK";
+        return (
+          // biome-ignore lint/suspicious/noArrayIndexKey: device index is its identity
+          <Card key={i} title={title} detail={g.name}>
+            {i === 0 && g.util != null && (
+              <AreaChart samples={state.history} pick={(s) => s.gpu ?? 0} max={100} format={(v) => `${v.toFixed(0)}%`} />
+            )}
+            {i > 0 && g.util != null && <Meter label={npu ? tr("AI Core") : tr("Usage")} used={g.util} total={100} percentOnly />}
+            {g.memTotal != null && g.memUsed != null && g.memTotal > 0 && (
+              <Meter label={npu ? tr("Device memory") : tr("VRAM")} used={g.memUsed} total={g.memTotal} />
+            )}
+            {(g.temp != null || g.power != null || g.health) && (
+              <div className="flex flex-wrap justify-between gap-x-3 text-[11px] text-muted-foreground">
+                {g.temp != null && (
+                  <span>
+                    {tr("Temperature")}{" "}
+                    <span className={cn("tabular-nums text-foreground/85", g.temp > 80 && "text-warning")}>{g.temp.toFixed(0)}°C</span>
+                  </span>
+                )}
+                {g.power != null && (
+                  <span>
+                    {tr("Power")} <span className="tabular-nums text-foreground/85">{g.power.toFixed(0)} W</span>
+                  </span>
+                )}
+                {g.health && (
+                  <span>
+                    {tr("Health")}{" "}
+                    <span className={cn(sick ? "font-medium text-warning" : "text-success")}>{g.health}</span>
+                  </span>
+                )}
+              </div>
+            )}
+          </Card>
+        );
+      })}
       {gpuProcs.length > 0 ? (
         <Processes procs={gpuProcs} machine={machine} memTotal={snap.memTotal} sortBy="gpu" />
       ) : (
-        <div className="px-1 text-[11.5px] text-muted-foreground">No processes are using the GPU right now.</div>
+        <div className="px-1 text-[11.5px] text-muted-foreground">
+          {allNpu ? tr("No processes are using the NPU right now.") : tr("No processes are using the GPU right now.")}
+        </div>
       )}
     </>
   );
@@ -332,10 +370,10 @@ function DiskTab({ snap }: { snap: MonitorSnapshot }) {
   return (
     <>
       <div className="grid grid-cols-2 gap-1.5">
-        <Tile icon={<ArrowDown />} label="Read" value={fmtRate(totals.r)} sub="all disks" />
-        <Tile icon={<ArrowUp />} label="Write" value={fmtRate(totals.w)} sub="all disks" />
+        <Tile icon={<ArrowDown />} label={tr("Read")} value={fmtRate(totals.r)} sub={tr("all disks")} />
+        <Tile icon={<ArrowUp />} label={tr("Write")} value={fmtRate(totals.w)} sub={tr("all disks")} />
       </div>
-      <Card title="File systems" detail="like df -h">
+      <Card title={tr("File systems")} detail={tr("like df -h")}>
         <div className="grid grid-cols-[minmax(0,1fr)] gap-3">
           {snap.disks.map((d) => (
             <DiskRow key={`${d.mount}:${d.device}`} d={d} />
@@ -364,19 +402,19 @@ function DiskRow({ d }: { d: MonitorDisk }) {
       <Bar pct={p} />
       <div className="grid grid-cols-3 gap-2 text-[10.5px] text-muted-foreground tabular-nums">
         <span>
-          Size <span className="text-foreground/85">{fmtBytes(d.total)}</span>
+          {tr("Size")}{" "}<span className="text-foreground/85">{fmtBytes(d.total)}</span>
         </span>
         <span>
-          Used <span className="text-foreground/85">{fmtBytes(d.used)}</span>
+          {tr("Used")}{" "}<span className="text-foreground/85">{fmtBytes(d.used)}</span>
         </span>
         <span className="text-right">
-          Free <span className="text-foreground/85">{fmtBytes(d.avail)}</span>
+          {tr("Free")}{" "}<span className="text-foreground/85">{fmtBytes(d.avail)}</span>
         </span>
       </div>
       {(d.readRate > 0 || d.writeRate > 0) && (
         <div className="flex gap-3 text-[10.5px] text-muted-foreground tabular-nums">
-          <span>↓ read {fmtRate(d.readRate)}</span>
-          <span>↑ write {fmtRate(d.writeRate)}</span>
+          <span>{tr("↓ read")}{" "}{fmtRate(d.readRate)}</span>
+          <span>{tr("↑ write")}{" "}{fmtRate(d.writeRate)}</span>
         </div>
       )}
     </div>
@@ -409,12 +447,12 @@ function Processes({
       .slice(0, 30);
   }, [procs, sort, q]);
   const cols: readonly SortKey[] = sortBy === "gpu" ? ["gpu", "mem"] : ["cpu", "mem"];
-  const head = { cpu: "CPU", mem: sortBy === "gpu" ? "VRAM" : "Memory", gpu: "GPU" };
+  const head = { cpu: tr("CPU"), mem: sortBy === "gpu" ? tr("VRAM") : tr("Memory"), gpu: tr("GPU") };
   return (
-    <Card title="Processes" detail="right-click for actions">
-      <SearchField value={q} onChange={setQ} placeholder="Filter by name, PID or command" />
+    <Card title={tr("Processes")} detail={tr("right-click for actions")}>
+      <SearchField value={q} onChange={setQ} placeholder={tr("Filter by name, PID or command")} />
       <div className="grid grid-cols-[minmax(0,1fr)_56px_64px] gap-2 px-1 text-[10.5px] font-medium text-muted-foreground">
-        <span>Name</span>
+        <span>{tr("Name")}</span>
         {cols.map((k) => (
           <button
             key={k}
@@ -469,11 +507,11 @@ function ProcRow({
 
   const kill = async (force: boolean) => {
     const ok = await confirm({
-      title: `${force ? "Force kill" : "End"} ${p.name} (${p.pid})?`,
+      title: tr(force ? "Force kill {0} ({1})?" : "End {0} ({1})?", { 0: p.name, 1: p.pid }),
       message: force
-        ? "The process is killed immediately (SIGKILL) — unsaved work in it is lost."
-        : "The process is asked to exit (SIGTERM). It may take a moment, or refuse.",
-      confirmLabel: force ? "Force kill" : "End process",
+        ? tr("The process is killed immediately (SIGKILL) — unsaved work in it is lost.")
+        : tr("The process is asked to exit (SIGTERM). It may take a moment, or refuse."),
+      confirmLabel: force ? tr("Force kill") : tr("End process"),
       danger: true,
     });
     if (!ok) return;
@@ -481,13 +519,13 @@ function ProcRow({
       await ipc.processKill(remote ? machine.slice(4) : null, p.pid, force);
       toast({ kind: "success", title: `${force ? "Killed" : "Ended"} ${p.name}` });
     } catch (e) {
-      toast({ kind: "error", title: `Couldn't end ${p.name}`, description: String(e) });
+      toast({ kind: "error", title: tr("Couldn't end {0}", { 0: p.name }), description: String(e) });
     }
   };
 
   const copy = (text: string, what: string) => {
     void navigator.clipboard.writeText(text);
-    toast({ kind: "success", title: `Copied ${what}`, description: text.length > 80 ? `${text.slice(0, 80)}…` : text, duration: 1800 });
+    toast({ kind: "success", title: what, description: text.length > 80 ? `${text.slice(0, 80)}…` : text, duration: 1800 });
   };
 
   return (
@@ -516,28 +554,28 @@ function ProcRow({
         </ContextMenuTrigger>
       </Tooltip>
       <ContextMenuContent className="min-w-48">
-        <ContextMenuItem onSelect={() => copy(String(p.pid), "PID")}>
-          <ClipboardCopy /> Copy PID
+        <ContextMenuItem onSelect={() => copy(String(p.pid), tr("Copied the PID"))}>
+          <ClipboardCopy /> {tr("Copy PID")}
         </ContextMenuItem>
-        <ContextMenuItem onSelect={() => copy(p.name, "name")}>
-          <ClipboardCopy /> Copy name
+        <ContextMenuItem onSelect={() => copy(p.name, tr("Copied the name"))}>
+          <ClipboardCopy /> {tr("Copy name")}
         </ContextMenuItem>
         {p.cmd && (
-          <ContextMenuItem onSelect={() => copy(p.cmd, "command line")}>
-            <ClipboardCopy /> Copy command line
+          <ContextMenuItem onSelect={() => copy(p.cmd, tr("Copied the command line"))}>
+            <ClipboardCopy /> {tr("Copy command line")}
           </ContextMenuItem>
         )}
         {!remote && p.exe && (
           <ContextMenuItem onSelect={() => void revealItemInDir(p.exe!)}>
-            <FolderOpen /> Open file location
+            <FolderOpen /> {tr("Open file location")}
           </ContextMenuItem>
         )}
         <ContextMenuSeparator />
         <ContextMenuItem onSelect={() => void kill(false)}>
-          <X /> End process
+          <X /> {tr("End process")}
         </ContextMenuItem>
         <ContextMenuItem destructive onSelect={() => void kill(true)}>
-          <OctagonX /> Force kill
+          <OctagonX /> {tr("Force kill")}
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
@@ -603,13 +641,13 @@ function Bar({ pct: p }: { pct: number }) {
   );
 }
 
-function Meter({ label, used, total }: { label: string; used: number; total: number }) {
+function Meter({ label, used, total, percentOnly }: { label: string; used: number; total: number; percentOnly?: boolean }) {
   return (
     <div className="grid gap-1">
       <div className="flex items-baseline gap-2 text-[11.5px]">
         <span className="min-w-0 truncate">{label}</span>
         <span className="ml-auto shrink-0 text-muted-foreground tabular-nums">
-          {fmtBytes(used)} / {fmtBytes(total)}
+          {percentOnly ? `${pct(used, total).toFixed(0)}%` : `${fmtBytes(used)} / ${fmtBytes(total)}`}
         </span>
       </div>
       <Bar pct={pct(used, total)} />
@@ -627,7 +665,7 @@ function Cores({ cores }: { cores: number[] }) {
     <div className="grid gap-x-[3px] gap-y-1.5" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
       {cores.map((c, i) => (
         // biome-ignore lint/suspicious/noArrayIndexKey: core index is its identity
-        <Tooltip key={i} content={`Core ${i} · ${c.toFixed(0)}%`} side="top" delay={150}>
+        <Tooltip key={i} content={tr("Core {0} · {1}%", { 0: i, 1: c.toFixed(0) })} side="top" delay={150}>
           <div className="grid gap-0.5">
             <div className="relative h-7 overflow-hidden rounded-[3px] bg-ov/[0.07]">
               <div
@@ -658,7 +696,7 @@ function CoreHeat({ cores }: { cores: number[] }) {
       <div className="grid gap-[2px]" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(24px, 1fr))" }}>
         {cores.map((c, i) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: core index is its identity
-          <Tooltip key={i} content={`Core ${i} · ${c.toFixed(0)}%`} side="top" delay={150}>
+          <Tooltip key={i} content={tr("Core {0} · {1}%", { 0: i, 1: c.toFixed(0) })} side="top" delay={150}>
             <div
               className={cn(
                 "flex h-[18px] items-center justify-center rounded-[3px] text-[9px] tabular-nums transition-colors duration-500",
@@ -675,13 +713,13 @@ function CoreHeat({ cores }: { cores: number[] }) {
       </div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10.5px] text-muted-foreground tabular-nums">
         <span>
-          avg <span className="text-foreground/85">{avg.toFixed(0)}%</span>
+          {tr("avg")}{" "}<span className="text-foreground/85">{avg.toFixed(0)}%</span>
         </span>
         <span>
           ≥80% <span className="text-foreground/85">{busy}</span>
         </span>
         <span className="min-w-0 truncate">
-          busiest{" "}
+          {tr("busiest")}{" "}
           {top.map(([i, c], k) => (
             <span key={i}>
               {k > 0 && ", "}
@@ -744,7 +782,7 @@ function AreaChart({
     <div className="grid gap-1">
       <div className="flex items-baseline justify-between text-[10.5px] text-muted-foreground tabular-nums">
         <span className="text-[12px] font-medium text-foreground">{format(values[cur])}</span>
-        <span>{idx !== null ? ago(samples[cur].t) : "last 2 min"}</span>
+        <span>{idx !== null ? ago(samples[cur].t) : tr("last 2 min")}</span>
       </div>
       <svg
         viewBox={`0 0 ${W} ${H}`}
@@ -784,8 +822,8 @@ function NetChart({ samples }: { samples: Sample[] }) {
   if (samples.length < 2) return <div className="h-16 rounded-md bg-ov/[0.03]" />;
   const toLine = (v: number[]) => path(v, max).map(([x, y], i) => `${i ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`).join("");
   const series = [
-    { label: "Down", values: rx, color: "var(--primary)" },
-    { label: "Up", values: tx, color: "var(--term-magenta)" },
+    { label: tr("Down"), values: rx, color: "var(--primary)" },
+    { label: tr("Up"), values: tx, color: "var(--term-magenta)" },
   ];
   return (
     <div className="grid gap-1">

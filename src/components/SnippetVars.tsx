@@ -19,6 +19,7 @@ import { toast } from "@/lib/overlay";
 import { fillVars, type Snippet, snippetInput, snippetVars, type SnippetVar } from "@/lib/snippets";
 import { useApp } from "@/store/app";
 import { Field } from "./dialogs";
+import { tr } from "@/lib/i18n";
 
 const MEMORY_KEY = "rainterm.snippetVars";
 
@@ -54,8 +55,8 @@ export async function sendSnippet(s: Snippet, run = s.run): Promise<boolean> {
     const tab = st.tabs.find((t) => t.id === st.activeTabId);
     return tab ? st.panes[tab.activePane] : undefined;
   };
-  if (!target()?.session.alive) {
-    toast({ kind: "info", title: "No connected terminal to send to" });
+  if (!target()?.session?.alive) {
+    toast({ kind: "info", title: tr("No connected terminal to send to") });
     return false;
   }
   let command = s.command;
@@ -69,7 +70,7 @@ export async function sendSnippet(s: Snippet, run = s.run): Promise<boolean> {
     command = fillVars(command, values);
   }
   const pane = target();
-  if (!pane?.session.alive) return false;
+  if (!pane?.session?.alive) return false;
   pane.session.input(snippetInput({ command, run }), true);
   pane.session.focus();
   return true;
@@ -96,9 +97,9 @@ export function SnippetVarsDialog() {
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Braces className="size-4 text-primary" />
-            {ask?.snippet.name || "Fill in the command"}
+            {ask?.snippet.name || tr("Fill in the command")}
           </DialogTitle>
-          <DialogDescription>The last values you used are filled in.</DialogDescription>
+          <DialogDescription>{tr("The last values you used are filled in.")}</DialogDescription>
         </DialogHeader>
         <form
           className="grid gap-3"
@@ -134,11 +135,11 @@ export function SnippetVarsDialog() {
           </pre>
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => close(null)}>
-              Cancel
+              {tr("Cancel")}
             </Button>
             <Button type="submit">
               {ask?.run ? <Play className="size-3.5" /> : <TextCursorInput className="size-3.5" />}
-              {ask?.run ? "Run" : "Type it in"}
+              {ask?.run ? tr("Run") : tr("Type it in")}
             </Button>
           </DialogFooter>
         </form>
