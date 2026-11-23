@@ -108,7 +108,7 @@ fn kill_tree(pid: Option<u32>) {
 }
 
 #[cfg(unix)]
-extern "C" {
+unsafe extern "C" {
     #[link_name = "kill"]
     fn libc_kill(pid: i32, sig: i32) -> i32;
 }
