@@ -7,6 +7,7 @@ import { handle as terminalTool } from "@/lib/mcp";
 import { useMcpStatus } from "@/lib/mcp";
 import type { AgentAutonomy } from "@/lib/settings";
 import { useApp } from "@/store/app";
+import { ensureKb, KB_TOOL_NAMES, kbPrompt, kbTools, runKbTool } from "@/lib/kb";
 import { AcpConnection, flattenOptions } from "./acp";
 import { acpCommand } from "./config";
 import { languageRule } from "./llm";
@@ -29,6 +30,8 @@ export interface SessionOptions {
 
 export interface TurnResult {
   text: string;
+  /** The answer itself: what the agent wrote after its last tool call (no "I'll start by…"). */
+  final?: string;
   stopReason?: string;
   usage: Usage;
 }
@@ -36,6 +39,8 @@ export interface TurnResult {
 export interface AgentSession {
   start(): Promise<void>;
   prompt(text: string): Promise<TurnResult>;
+  /** Stop the current turn but keep the session (to say something to the agent). */
+  interrupt(): Promise<void>;
   cancel(): Promise<void>;
   close(): void;
 }
@@ -83,17 +88,20 @@ async function launch(rt: RuntimeConfig, cwd: string | undefined, conn: AcpConne
 
 // ------------------------------------------------------------------ ACP
 
-function rainMcp(): unknown[] {
+/** rainterm's MCP server for an ACP agent: terminals + knowledge, or only the knowledge tools. */
+function rainMcp(terminals: boolean): unknown[] {
   const st = useApp.getState().settings.mcp;
   const addr = useMcpStatus.getState().listening;
   if (!st.enabled || !addr) return [];
-  return [{ type: "http", name: "rainterm", url: `http://${addr}/mcp`, headers: [{ name: "Authorization", value: `Bearer ${st.token}` }] }];
+  const path = terminals ? "/mcp" : "/mcp/kb";
+  return [{ type: "http", name: "rainterm", url: `http://${addr}${path}`, headers: [{ name: "Authorization", value: `Bearer ${st.token}` }] }];
 }
 
 class AcpSession implements AgentSession {
   private conn: AcpConnection;
   private sessionId?: string;
   private text = "";
+  private final = "";
   private buf = { text: "", thinking: "" };
   private timer?: ReturnType<typeof setTimeout>;
   private usage: Usage = {};
@@ -134,6 +142,7 @@ class AcpSession implements AgentSession {
       case "agent_message_chunk":
         if (u.content?.type === "text") {
           this.text += u.content.text;
+          this.final += u.content.text;
           this.buffer("text", u.content.text);
         }
         break;
@@ -143,6 +152,7 @@ class AcpSession implements AgentSession {
       case "tool_call":
       case "tool_call_update": {
         this.flush();
+        if (u.sessionUpdate === "tool_call") this.final = "";
         const prev = this.tools.get(u.toolCallId) ?? { title: "tool" };
         const title = u.title ?? prev.title;
         const kind = u.kind ?? prev.kind;
@@ -171,7 +181,9 @@ class AcpSession implements AgentSession {
     this.conn.attach(await launch(rt, rt.remote ? undefined : this.o.cwd, this.conn));
     // biome-ignore lint/suspicious/noExplicitAny: ACP responses
     const init: any = await this.conn.initialize();
-    const mcp = this.o.ceiling.terminals && init?.agentCapabilities?.mcpCapabilities?.http ? rainMcp() : [];
+    await ensureKb();
+    // A remote agent can't reach the listener on this computer.
+    const mcp = !rt.remote && init?.agentCapabilities?.mcpCapabilities?.http ? rainMcp(this.o.ceiling.terminals) : [];
     // biome-ignore lint/suspicious/noExplicitAny: ACP responses
     const s: any = await this.conn.request("session/new", { cwd: this.o.cwd, mcpServers: mcp }, 180_000);
     this.sessionId = s.sessionId;
@@ -202,6 +214,7 @@ class AcpSession implements AgentSession {
 
   async prompt(text: string): Promise<TurnResult> {
     this.text = "";
+    this.final = "";
     // biome-ignore lint/suspicious/noExplicitAny: ACP responses
     const r: any = await this.conn.request("session/prompt", { sessionId: this.sessionId, prompt: [{ type: "text", text }] });
     this.flush();
@@ -212,12 +225,16 @@ class AcpSession implements AgentSession {
         outputTokens: (this.usage.outputTokens ?? 0) + (r.usage.outputTokens ?? 0),
       };
     this.o.onEvent({ t: "usage", usage: this.usage });
-    return { text: this.text, stopReason: r?.stopReason, usage: this.usage };
+    return { text: this.text, final: this.final, stopReason: r?.stopReason, usage: this.usage };
   }
 
   async cancel() {
     if (this.sessionId) this.conn.notify("session/cancel", { sessionId: this.sessionId });
     setTimeout(() => this.close(), 3000);
+  }
+
+  async interrupt() {
+    if (this.sessionId) this.conn.notify("session/cancel", { sessionId: this.sessionId });
   }
 
   close() {
@@ -325,6 +342,8 @@ class BuiltinSession implements AgentSession {
   }
 
   async start() {
+    await ensureKb();
+    this.tools = [...builtinTools(this.o.ceiling), ...kbTools()];
     const base = await llmConfig();
     this.config = { ...base, model: this.o.peer?.model || base.model, effort: this.o.peer?.effort || base.effort };
     this.o.onEvent({ t: "start", info: `rainterm · ${this.config.model}` });
@@ -333,6 +352,7 @@ class BuiltinSession implements AgentSession {
   private system() {
     return `You are an autonomous agent working for the user of the rainterm terminal app. Working directory: ${this.o.cwd}
 Use the tools to inspect and act; be concise in prose. Never type passwords or secrets. When the task is done, give your final answer in the format requested.
+${kbPrompt()}
 ${languageRule()}`;
   }
 
@@ -355,11 +375,18 @@ ${languageRule()}`;
   }
 
   async prompt(text: string): Promise<TurnResult> {
+    this.turnStop = false;
     this.messages.push({ role: "user", content: [{ type: "text", text }] });
     let final = "";
-    for (let turn = 0; turn < 80 && !this.cancelled; turn++) {
-      const blocks = await this.chat();
-      if (!blocks || this.cancelled) break;
+    for (let turn = 0; turn < 80 && !this.cancelled && !this.turnStop; turn++) {
+      let blocks: LlmBlock[] | null;
+      try {
+        blocks = await this.chat();
+      } catch (e) {
+        if (this.turnStop) break;
+        throw e;
+      }
+      if (!blocks || this.cancelled || this.turnStop) break;
       this.messages.push({ role: "assistant", content: blocks });
       final = blocks.map((b) => (b.type === "text" ? b.text : "")).join("");
       const calls = blocks.filter((b): b is Extract<LlmBlock, { type: "tool_use" }> => b.type === "tool_use");
@@ -368,7 +395,16 @@ ${languageRule()}`;
       for (const c of calls) results.push(await this.runTool(c));
       this.messages.push({ role: "user", content: results });
     }
-    return { text: final, stopReason: this.cancelled ? "cancelled" : "end_turn", usage: this.usage };
+    // a tool call left without its result would break the next request
+    const last = this.messages[this.messages.length - 1];
+    if (this.turnStop && last?.role === "assistant" && last.content.some((b) => b.type === "tool_use"))
+      this.messages.push({
+        role: "user",
+        content: last.content
+          .filter((b): b is Extract<LlmBlock, { type: "tool_use" }> => b.type === "tool_use")
+          .map((b) => ({ type: "tool_result", tool_use_id: b.id, content: "Interrupted.", is_error: true }) as LlmBlock),
+      });
+    return { text: final, final, stopReason: this.cancelled || this.turnStop ? "cancelled" : "end_turn", usage: this.usage };
   }
 
   private async runTool(call: Extract<LlmBlock, { type: "tool_use" }>): Promise<LlmBlock> {
@@ -390,6 +426,24 @@ ${languageRule()}`;
       rawInput: a,
       locations: a.path != null ? [{ path: p(a.path) }] : [],
     };
+    if (KB_TOOL_NAMES.has(call.name)) {
+      // Reading the user's own notes needs no permission.
+      const t =
+        call.name === "search_knowledge"
+          ? `search knowledge: ${a.query ?? ""}`
+          : call.name === "save_knowledge"
+            ? `save to knowledge: ${a.title ?? ""}`
+            : `read note ${a.id ?? ""}`;
+      this.o.onEvent({ t: "tool", id: call.id, title: t, kind: "search", status: "in_progress" });
+      try {
+        const out = await runKbTool(call.name, a);
+        this.o.onEvent({ t: "tool", id: call.id, title: t, kind: "search", status: "completed", detail: out.slice(0, 1200) });
+        return res(out);
+      } catch (e) {
+        this.o.onEvent({ t: "tool", id: call.id, title: t, kind: "search", status: "failed", detail: String(e) });
+        return res(String(e), true);
+      }
+    }
     this.o.onEvent({ t: "tool", id: call.id, title, kind: tc.kind, status: "pending" });
     const end = (status: "completed" | "failed", detail?: string) =>
       this.o.onEvent({ t: "tool", id: call.id, title, kind: tc.kind, status, detail: detail?.slice(0, 1200) });
@@ -461,6 +515,12 @@ ${languageRule()}`;
 
   async cancel() {
     this.cancelled = true;
+    await ipc.llmCancel(this.llmId).catch(() => false);
+  }
+
+  private turnStop = false;
+  async interrupt() {
+    this.turnStop = true;
     await ipc.llmCancel(this.llmId).catch(() => false);
   }
 

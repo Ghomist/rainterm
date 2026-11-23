@@ -1,7 +1,7 @@
 // State of the agents board. The engine keeps the authoritative objects in Maps and mutates
 // them (like agent-forge's store); every put publishes a fresh copy to the zustand store the
 // UI renders from, and a debounced save writes everything to <home>/agents.json.
-import { create } from "zustand";
+import { create, type StoreApi, type UseBoundStore } from "zustand";
 import { ipc } from "@/lib/ipc";
 import { defaultConfig } from "./config";
 import type { AgentEvent, AgentRun, Feature, ForgeConfig, Goal, PendingApproval, RuntimeProbe, Story, TimelineItem } from "./types";
@@ -22,7 +22,11 @@ export interface ForgeView {
   activeRuns: string[];
 }
 
-export const useForge = create<ForgeView>(() => ({
+// Kept across dev hot updates: the engine (also kept) writes to these, so a reloaded module
+// must not create fresh, empty ones.
+export const useForge: UseBoundStore<StoreApi<ForgeView>> =
+  import.meta.hot?.data.useForge ??
+  create<ForgeView>(() => ({
   loaded: false,
   goals: {},
   features: {},
@@ -36,9 +40,12 @@ export const useForge = create<ForgeView>(() => ({
   thinking: false,
   activeRuns: [],
 }));
+if (import.meta.hot) import.meta.hot.data.useForge = useForge;
 
 /** Live output of runs, by run id (finished runs of earlier sessions load from disk on demand). */
-export const useRunEvents = create<Record<string, { at: string; event: AgentEvent }[]>>(() => ({}));
+export const useRunEvents: UseBoundStore<StoreApi<Record<string, { at: string; event: AgentEvent }[]>>> =
+  import.meta.hot?.data.useRunEvents ?? create<Record<string, { at: string; event: AgentEvent }[]>>(() => ({}));
+if (import.meta.hot) import.meta.hot.data.useRunEvents = useRunEvents;
 
 type Table = "goals" | "features" | "stories" | "runs" | "approvals" | "probes";
 

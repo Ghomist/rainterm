@@ -148,10 +148,16 @@ export const STATUS_LABEL: Record<Status, string> = {
   needs_human: "Needs you",
   needs_split: "Too big",
   cancelled: "Cancelled",
+  skipped: "Skipped",
 };
+
+/** Long paths in text read as their last folder: "D:\Projects\tool" → "tool". */
+export function shortPaths(text: string) {
+  return text.replace(/(?:[a-zA-Z]:[\\/]|~[\\/]|\/(?=[\w.]))[^\s"'“”‘’，。；：、！？（）()]+/g, (p) => p.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || p);
+}
 
 /** A goal as people refer to it: the start of what they asked for. */
 export function shortName(text: string, max = 24) {
-  const line = text.split("\n")[0].replace(/\s+/g, " ").trim();
+  const line = shortPaths(text.split("\n")[0]).replace(/\s+/g, " ").trim();
   return line.length > max ? `${line.slice(0, max - 1)}…` : line;
 }

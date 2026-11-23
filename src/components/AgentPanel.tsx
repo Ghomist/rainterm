@@ -345,7 +345,17 @@ function StepView({ s, pane, approving }: { s: Step; pane: Pane; approving: bool
                 s.state === "declined" && "line-through opacity-60",
               )}
             >
-              {s.tool === "read_terminal" ? tr("read terminal ({0})", { 0: s.label }) : s.tool === "send_keys" ? tr("keys: {0}", { 0: s.label }) : s.label}
+              {s.tool === "read_terminal"
+                ? tr("read terminal ({0})", { 0: s.label })
+                : s.tool === "send_keys"
+                  ? tr("keys: {0}", { 0: s.label })
+                  : s.tool === "search_knowledge"
+                    ? tr("search knowledge: {0}", { 0: s.label })
+                    : s.tool === "read_knowledge"
+                      ? tr("read note: {0}", { 0: s.label })
+                      : s.tool === "save_knowledge"
+                        ? tr("saved to knowledge: {0}", { 0: s.label })
+                        : s.label}
             </code>
             {s.exitCode != null && s.exitCode !== 0 && <span className="shrink-0 font-mono text-[10.5px] text-destructive">{tr("exit")}{" "}{s.exitCode}</span>}
             {s.result && <ChevronRight className={cn("size-3 shrink-0 text-muted-foreground transition-transform", open && "rotate-90")} />}

@@ -13,7 +13,9 @@ export type Status =
   | "blocked"
   | "needs_human"
   | "needs_split"
-  | "cancelled";
+  | "cancelled"
+  /** The user skipped it (with a note the next steps see). */
+  | "skipped";
 
 export type Tier = "L1" | "L2" | "L3" | "L4";
 export const TIERS: Tier[] = ["L1", "L2", "L3", "L4"];
@@ -34,6 +36,8 @@ export interface Goal {
   messages: { at: string; text: string }[];
   /** The final report for the user, written when the goal is done. */
   report?: string;
+  /** Knowledge-base notes kept (added or updated) from this goal's results. */
+  learned?: { id: string; title: string }[];
 }
 
 export interface BriefEntry {
@@ -73,6 +77,10 @@ export interface Story {
   feature: string;
   goal: string;
   title: string;
+  /** One sentence: what the step achieves (newer plans). */
+  objective?: string;
+  steps?: string[];
+  deliverables?: string[];
   instructions: string;
   acceptance: Check[];
   dependsOn: string[];
@@ -83,6 +91,10 @@ export interface Story {
   status: Status;
   attempts: Attempt[];
   handoff?: Handoff;
+  /** What the worker wrote for people (markdown, JSON removed). */
+  output?: string;
+  /** Why the user skipped it — passed on to the steps after it. */
+  skipNote?: string;
   pinnedPeer?: string;
   blockedReason?: string;
   createdAt: string;
@@ -113,7 +125,7 @@ export interface Usage {
   costUsd?: number;
 }
 
-export type RunPurpose = "plan" | "work" | "verify" | "probe";
+export type RunPurpose = "plan" | "work" | "verify" | "report" | "supervise" | "learn" | "probe";
 export type RunStatus = "starting" | "running" | "waiting_permission" | "done" | "failed" | "cancelled";
 
 export interface AgentRun {
@@ -147,6 +159,8 @@ export type AgentEvent =
   | { t: "permission"; id: string; title: string; decision: "allow" | "deny" | "pending_human"; reason?: string }
   | { t: "usage"; usage: Usage }
   | { t: "stderr"; text: string }
+  /** Someone stepped in mid-run: the user, or the supervisor that keeps agents on track. */
+  | { t: "note"; from: "user" | "supervisor"; text: string }
   | { t: "error"; message: string }
   | { t: "end"; stopReason?: string };
 
@@ -211,6 +225,10 @@ export interface ForgeConfig {
   limits: { maxConcurrentRuns: number; dailyCostUsd: number };
   /** Folders used before (newest first), offered when a goal needs a workspace. */
   workspaces: string[];
+  /** Check now and then that running agents still work toward their step (default on). */
+  supervise?: boolean;
+  /** Keep what finished goals taught in the knowledge base (default on). */
+  learn?: boolean;
   /** Language agents write in: "system" (the UI language), "zh", "en", "ja"… */
   outputLanguage?: string;
 }

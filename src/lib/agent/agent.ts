@@ -12,6 +12,7 @@ import { useApp } from "@/store/app";
 import { proxyUrl } from "@/lib/proxy-url";
 import { atPrompt, isReadOnly, keysToBytes, readScreen, runCommand, truncate } from "./terminal";
 import { tr } from "@/lib/i18n";
+import { ensureKb, KB_TOOL_NAMES, kbPrompt, kbToolLabel, kbTools, runKbTool } from "@/lib/kb";
 
 // ------------------------------------------------------------------ state
 
@@ -197,7 +198,10 @@ function systemPrompt(s: TermSession, autonomy: AgentAutonomy, title: string, su
     "Work in small, safe steps: look before you change things, prefer read-only checks, never run destructive commands (deleting data, restarting services, force pushes…) unless the user clearly asked for exactly that. Don't type passwords or secrets; if a command asks for one, stop and tell the user.",
     "Keep commands non-interactive and bounded. If a command is still running when the tool returns, read_terminal later or interrupt it with send_keys <C-c> if it is stuck.",
     "Answer in the user's language. Be brief: a few sentences or a short list; code and commands in backticks or fenced blocks. Don't repeat output the user can already see in the terminal — summarize what matters.",
-  ].join("\n\n");
+    kbPrompt(),
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 // ------------------------------------------------------------------ the loop
@@ -255,12 +259,13 @@ export async function ask(paneId: string, text: string) {
 
   try {
     const config = await llmConfig();
+    await ensureKb();
     for (let turn = 0; turn < 30 && !abort.signal.aborted; turn++) {
       const t = useAgent.getState().threads[paneId];
       const assistant = await callModel(paneId, run, config, {
         system: systemPrompt(s, t.autonomy, pane.title, pane.subtitle),
         messages: t.messages,
-        tools: TOOLS,
+        tools: [...TOOLS, ...kbTools()],
       });
       if (!assistant || abort.signal.aborted) break;
       patchThread(paneId, (th) => ({ messages: [...th.messages, { role: "assistant", content: assistant.blocks }] }));
@@ -400,6 +405,19 @@ async function runTool(
   const stepId = uid();
   const autonomy = useAgent.getState().threads[paneId]?.autonomy ?? "confirm";
   if ("__invalid_json" in input) return res("Tool input was not valid JSON; try again.", true);
+
+  if (KB_TOOL_NAMES.has(call.name)) {
+    const label = kbToolLabel(call.name, input);
+    addStep(paneId, { kind: "tool", id: stepId, tool: call.name, label, state: "running" });
+    try {
+      const out = await runKbTool(call.name, input);
+      patchStep(paneId, stepId, { state: "done", result: out });
+      return res(out);
+    } catch (e) {
+      patchStep(paneId, stepId, { state: "error", result: String(e) });
+      return res(String(e), true);
+    }
+  }
 
   if (call.name === "read_terminal") {
     const n = Math.min(300, Math.max(5, Number(input.lines) || 60));

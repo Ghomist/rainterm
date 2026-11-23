@@ -30,6 +30,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tooltip } from "@/components/ui/tooltip";
+import { UpdateBadge } from "./Updater";
 import { tooltipKeys } from "@/lib/keymap";
 import { cn, isMac } from "@/lib/utils";
 import {
@@ -364,6 +365,7 @@ function NewTabButton() {
 function RightTools() {
   return (
     <div className="mr-1 flex shrink-0 items-center gap-0.5">
+      <UpdateBadge />
       <BroadcastMenu />
     </div>
   );

@@ -2,15 +2,16 @@
 // Flow is code, not prompt: each agent call makes one small decision whose output is
 // checked against a schema and written to the board; the board is the only source of truth.
 import { tr } from "@/lib/i18n";
+import { knowledgeFor, refreshKb } from "@/lib/kb";
 import { ipc } from "@/lib/ipc";
 import { notify } from "@/lib/notify";
 import type { AgentAutonomy } from "@/lib/settings";
 import { useApp } from "@/store/app";
-import { effectiveRoles, shortName, STATUS_LABEL } from "./config";
+import { effectiveRoles, shortName, STATUS_LABEL, tierLabel } from "./config";
 import { decide } from "./policy";
-import { agentsHome, join, runShell } from "./proc";
+import { agentsHome, join, run, runShell } from "./proc";
 import { complete, hasModel, languageRule, textOf } from "./llm";
-import { extractJson, JSON_REMINDER, planPrompt, verifyPrompt, workPrompt } from "./prompts";
+import { extractJson, JSON_FIX, JSON_REMINDER, planPrompt, proseOnly, verifyPrompt, workPrompt } from "./prompts";
 import { type AgentSession, createSession, probeRuntime } from "./runtimes";
 import { Store, useForge } from "./store";
 import {
@@ -44,6 +45,13 @@ interface ActiveRun {
   session?: AgentSession;
   story?: string;
   cancelled?: boolean;
+  /** Messages waiting to be said to the agent once its turn is interrupted. */
+  pending?: { from: "user" | "supervisor"; text: string }[];
+  /** What it did lately, for the supervisor (tool calls, bits of text). */
+  recent: string[];
+  sinceCheck: number;
+  checkedAt: number;
+  corrections: number;
 }
 
 export class Engine {
@@ -75,6 +83,7 @@ export class Engine {
         });
       else void this.probeAll();
       this.timer = setInterval(() => void this.tick(), 1500);
+      this.superviseTimer = setInterval(() => void this.superviseTick(), 60_000);
       this.watchGoals();
       // goals finished before reports existed (or while a report was being written) get one now
       for (const g of this.store.goals.values())
@@ -83,8 +92,10 @@ export class Engine {
     return this.started;
   }
 
+  private superviseTimer?: ReturnType<typeof setInterval>;
   stop() {
     clearInterval(this.timer);
+    clearInterval(this.superviseTimer);
   }
 
   // ------------------------------------------------------------------ telling the user
@@ -110,53 +121,177 @@ export class Engine {
     });
   }
 
-  /** The final report: what the user asked for, answered from the tasks' handoffs. */
+  /** The final report: what the user asked for, answered for someone who didn't watch the work. */
   async report(goalId: string) {
     const g = this.store.goals.get(goalId);
-    if (!g) return;
-    const done = this.storiesOf(g.id).filter((x) => x.status === "done" && x.handoff);
-    const facts = done
-      .map((x) => {
-        const h = x.handoff!;
-        const parts = [`### ${x.title}`, h.summary];
-        if (h.findings?.length) parts.push(...h.findings.map((f) => `- ${f.claim}${f.source ? ` (${f.source})` : ""}`));
-        if (h.changes.length) parts.push(...h.changes.map((c) => `- changed ${c.resource}: ${c.what}`));
-        if (h.openIssues.length) parts.push(...h.openIssues.map((i) => `- open issue: ${i}`));
-        return parts.join("\n");
-      })
-      .join("\n\n");
-    let text = "";
-    if (hasModel() && facts) {
+    if (!g || this.reporting.has(goalId)) return;
+    this.reporting.add(goalId);
+    try {
+      const done = this.storiesOf(g.id).filter((x) => x.status === "done" && x.handoff);
+      const isGit = g.workspace ? await this.isGit(g.workspace) : false;
+      const facts = done
+        .map((x) => {
+          const h = x.handoff!;
+          const parts = [`### ${x.title}`, `Result: ${h.summary}`];
+          if (x.output) parts.push(`Worker's write-up:\n${x.output.slice(0, 4000)}`);
+          if (h.findings?.length) parts.push(...h.findings.map((f) => `- finding: ${f.claim}${f.source ? ` (${f.source})` : ""}`));
+          if (h.changes.length) parts.push(...h.changes.map((c) => `- changed ${c.resource}: ${c.what}`));
+          if (h.openIssues.length) parts.push(...h.openIssues.map((i) => `- open issue: ${i}`));
+          return parts.join("\n");
+        })
+        .join("\n\n");
+      const skipped = this.storiesOf(g.id).filter((x) => x.status === "skipped");
+      const skippedFacts = skipped.map((x) => `- skipped by the user: ${x.title} (their note: ${x.skipNote ?? ""})`).join("\n");
+      const where = g.workspace
+        ? isGit
+          ? `The work was done in the git repository ${g.workspace}, on branch ${ws.integrationBranch(g.id)}; it reaches the user's own branch only after they approve the merge.`
+          : `The work was done directly in the folder ${g.workspace}.`
+        : `There was no project folder; files the workers wrote are in ${join(await agentsHome(), "scratch", g.id)}.`;
+      const system = `You write the final report of a finished task for the person who asked for it. They did not watch the work and don't know how it was split up — never mention agents, workers, stories, tasks, ids or JSON.
+Write in Markdown:
+1. First a short paragraph that directly answers or states the outcome (for a question: the answer itself, with the key facts).
+2. Then only the sections that apply, with these headings: what was done; files changed (paths, one line each); how to check or use it; things that need attention (open issues, follow-ups, anything uncertain).
+Be concrete and short. Use the facts given; don't invent anything.
+${languageRule()}`;
+      const user = `What they asked for:\n${g.text}${g.messages.length ? `\n\nTheir follow-ups:\n${g.messages.map((m) => `- ${m.text}`).join("\n")}` : ""}\n\n${where}\n\nResults:\n${facts || "(no results)"}${skippedFacts ? `\n\nNot done:\n${skippedFacts}` : ""}`;
+      let text = "";
+      if (facts && hasModel()) {
+        try {
+          text = textOf(await complete(system, [{ role: "user", content: [{ type: "text", text: user }] }], [], 2000));
+        } catch {
+          /* try a pool agent */
+        }
+      }
+      if (!text && facts) {
+        // no model of our own: ask an agent from the pool (no tools needed)
+        const peer = this.matchPeer("analyze", "L1", { needCapacity: false }).peer ?? this.matchPeer("plan", "L1", { needCapacity: false }).peer;
+        if (peer) {
+          const cwd = join(await agentsHome(), "scratch", g.id);
+          await ipc.fsMkdir({ kind: "local" }, cwd).catch(() => {});
+          const out = await this.runAgent({
+            peer,
+            purpose: "report",
+            subject: g.id,
+            cwd,
+            role: { ...this.role("analyze")!, permissionCeiling: { fs: "none", shell: "none", web: false, terminals: false } },
+            timeoutMin: 10,
+            expectJson: false,
+            prompt: `${system}\n\nReply with the report only.\n\n${user}`,
+          });
+          if (!out.error) text = out.prose.trim();
+        }
+      }
+      if (!text) text = this.stitchedReport(g, done, isGit);
+      g.report = text;
+      this.store.put("goals", g);
+      this.say(g.id, text);
+      if (facts && this.config.learn !== false) void this.learn(g.id, facts).catch(() => {});
+    } finally {
+      this.reporting.delete(goalId);
+    }
+  }
+
+  private reporting = new Set<string>();
+
+  /** The rainterm model, when one is set, for small picking / summarizing jobs. */
+  private extractor() {
+    if (!hasModel()) return undefined;
+    return async (system: string, user: string) => textOf(await complete(system, [{ role: "user", content: [{ type: "text", text: user }] }], [], 900));
+  }
+
+  /**
+   * After a goal: keep what it taught about the user's environment in the knowledge base,
+   * updating related notes rather than piling up near-duplicates. Usually nothing.
+   */
+  private async learn(goalId: string, facts: string) {
+    const g = this.store.goals.get(goalId);
+    if (!g || g.learned) return;
+    const related = await ipc.kbSearch(`${g.text}\n${facts}`.slice(0, 2000), 5).catch(() => []);
+    const ids = new Set(related.map((h) => h.id));
+    const existing = related.map((h) => `### ${h.title} (id: ${h.id})\n${h.snippet.slice(0, 900)}`).join("\n\n") || "(none)";
+    const system = `You keep the knowledge base that AI agents working for one user share. From the results of a finished task, keep only durable knowledge that will help future tasks: how the user's machines, services and projects are set up (hosts, paths, versions, config locations, ports), procedures that worked, root causes and fixes of problems, rules or preferences the user stated. Skip anything one-off (this task's progress, temporary output, generic knowledge any engineer has) and never write secrets (passwords, tokens, private keys).
+Prefer updating an existing related note over adding a near-duplicate: to update one, give its id and the complete new content, keeping its facts that are still valid.
+Reply with only a JSON block: {"notes": [{"id": "an existing id, or omit for a new note", "title": "short and specific", "tags": ["..."], "content": "concise Markdown"}]} with at most 3 notes, or {"notes": []} when there is nothing worth keeping — which is common.
+${languageRule()}`;
+    const user = `What the user asked for:\n${g.text}\n\nResults:\n${facts.slice(0, 12_000)}\n\nExisting related notes:\n${existing}`;
+    type Out = { notes?: { id?: string; title?: string; tags?: string[]; content?: string }[] };
+    const valid = (v: Out | undefined) => (!Array.isArray(v?.notes) ? 'It needs "notes": an array (empty when nothing is worth keeping).' : null);
+    let out: Out | undefined;
+    if (hasModel()) {
+      out = extractJson<Out>(textOf(await complete(system, [{ role: "user", content: [{ type: "text", text: user }] }], [], 2500)));
+    } else {
+      const m = this.matchPeer("analyze", "L1", { needCapacity: false });
+      const pick = m.peer ? m : this.matchPeer("plan", "L1", { needCapacity: false });
+      if (!pick.peer) return;
+      const cwd = join(await agentsHome(), "scratch", g.id);
+      await ipc.fsMkdir({ kind: "local" }, cwd).catch(() => {});
+      const r = await this.runAgent<Out>({
+        peer: pick.peer,
+        purpose: "learn",
+        subject: g.id,
+        cwd,
+        role: { ...this.role("analyze")!, permissionCeiling: { fs: "none", shell: "none", web: false, terminals: false } },
+        timeoutMin: 6,
+        prompt: `${system}\n\n${user}`,
+        validate: valid,
+      });
+      out = r.json;
+    }
+    if (valid(out)) return;
+    const secret = /-----BEGIN [A-Z ]*PRIVATE KEY-----|\b(?:sk|ghp|gho|xox[bp])-?[A-Za-z0-9_]{20,}|password\s*[:=]\s*\S{4,}/i;
+    const kept: { id: string; title: string }[] = [];
+    for (const n of (out?.notes ?? []).slice(0, 3)) {
+      const title = n.title?.trim();
+      const content = n.content?.trim();
+      if (!title || !content || secret.test(content)) continue;
+      const id = n.id && ids.has(n.id) ? n.id : null;
       try {
-        text = textOf(
-          await complete(
-            `You write the final report of a finished task for the person who asked for it, from the results the worker agents handed in.
-Start with the direct answer or outcome in the first sentence (for a question: the answer itself). Then, only if useful, a few short bullets: what was changed (files), notable findings, open issues or follow-ups. No preamble, no restating the task, no mention of agents, stories or JSON. Markdown, concise.
-${languageRule()}`,
-            [{ role: "user", content: [{ type: "text", text: `Task:\n${g.text}\n\nResults:\n${facts}${g.note ? `\n\nNote: ${g.note}` : ""}` }] }],
-            [],
-            1500,
-          ),
-        );
+        const saved = await ipc.kbSave(id, title, Array.isArray(n.tags) ? n.tags.map(String) : [], content, "agent");
+        kept.push({ id: saved, title });
       } catch {
-        /* fall back to the stitched report */
+        /* skip this one */
       }
     }
-    if (!text) {
-      text =
-        done.length === 1
-          ? [
-              done[0].handoff!.summary,
-              ...(done[0].handoff!.findings ?? []).map((f) => `- ${f.claim}`),
-              ...done[0].handoff!.openIssues.map((i) => `- ⚠ ${i}`),
-            ].join("\n")
-          : done.map((x) => `- **${x.title}** — ${x.handoff!.summary}`).join("\n") || tr("Done.");
-    }
-    if (g.note) text += `\n\n_${g.note}_`;
-    g.report = text;
-    this.store.put("goals", g);
-    this.say(g.id, text);
+    const cur = this.store.goals.get(goalId);
+    if (!cur) return;
+    cur.learned = kept;
+    this.store.put("goals", cur);
+    if (kept.length) void refreshKb();
   }
+
+  /** A plain report from the results alone (no model available). */
+  private stitchedReport(g: Goal, done: Story[], isGit: boolean) {
+    const out: string[] = [];
+    if (done.length === 1) out.push(done[0].handoff!.summary);
+    else out.push(done.map((x) => `- **${x.title}**: ${x.handoff!.summary}`).join("\n"));
+    const findings = done.flatMap((x) => x.handoff!.findings ?? []);
+    if (findings.length) out.push(`## ${tr("Findings")}\n${findings.map((f) => `- ${f.claim}${f.source ? ` (\`${f.source}\`)` : ""}`).join("\n")}`);
+    const changes = done.flatMap((x) => x.handoff!.changes);
+    if (changes.length) out.push(`## ${tr("Files changed")}\n${changes.map((c) => `- \`${c.resource}\` ${c.what}`).join("\n")}`);
+    const issues = done.flatMap((x) => x.handoff!.openIssues);
+    if (issues.length) out.push(`## ${tr("Needs attention")}\n${issues.map((i) => `- ${i}`).join("\n")}`);
+    if (isGit && changes.length) out.push(`> ${tr("The changes are on branch {0}; approve the merge to bring them into your branch.", { 0: ws.integrationBranch(g.id) })}`);
+    return out.join("\n\n") || tr("Done.");
+  }
+
+  /** Text of a file a task produced (markdown reports and the like), wherever it lives now. */
+  async readOutput(storyId: string, file: string): Promise<string> {
+    const s = this.mustStory(storyId);
+    const g = this.mustGoal(s.goal);
+    const rel = file.replace(/^\.?[\\/]+/, "");
+    if (/^([a-zA-Z]:[\\/]|\/)/.test(file)) return ipc.fileReadText(file, 1024 * 1024);
+    if (g.workspace && (await this.isGit(g.workspace))) {
+      // merged or not, the goal's branch has it
+      for (const ref of [ws.integrationBranch(g.id), ws.storyBranch(s.id), "HEAD"]) {
+        const r = await run(["git", "show", `${ref}:${rel.replace(/\\/g, "/")}`], { cwd: g.workspace, timeoutMs: 15_000 });
+        if (r.code === 0) return r.stdout;
+      }
+      throw new Error(tr("File not found: {0}", { 0: rel }));
+    }
+    const base = g.workspace ?? join(await agentsHome(), "scratch", g.id);
+    return ipc.fileReadText(join(base, rel), 1024 * 1024);
+  }
+
 
   private sync() {
     useForge.setState({ paused: this.paused, activeRuns: [...this.active.keys()] });
@@ -186,7 +321,7 @@ ${languageRule()}`,
   // ------------------------------------------------------------------ config & probing
 
   async probeAll() {
-    await Promise.all(this.config.runtimes.filter((r) => r.enabled !== false).map((r) => this.probe(r.id)));
+    await Promise.all(this.config.runtimes.map((r) => this.probe(r.id)));
   }
 
   async probe(runtimeId: string) {
@@ -198,6 +333,10 @@ ${languageRule()}`,
     await ipc.fsMkdir({ kind: "local" }, dir).catch(() => {});
     const p = await probeRuntime(rt, dir);
     this.store.putProbe({ ...p, probing: false });
+    // a runtime that works is used; one that doesn't is skipped by matching anyway
+    const cur = this.runtime(runtimeId);
+    if (p.ok && cur && cur.enabled === false)
+      this.store.setConfig({ ...this.config, runtimes: this.config.runtimes.map((r) => (r.id === runtimeId ? { ...r, enabled: true } : r)) });
     return p;
   }
 
@@ -351,7 +490,7 @@ ${languageRule()}`,
     if (this.isStoryActive(storyId)) throw new Error(tr("“{0}” is running.", { 0: s.title }));
     s.budget.attempts = Math.max(s.budget.attempts, s.attempts.length + 1);
     s.pinnedPeer = peer || s.pinnedPeer;
-    s.status = s.dependsOn.every((d) => this.store.stories.get(d)?.status === "done") ? "ready" : "blocked";
+    s.status = s.dependsOn.every((d) => isSettled(this.store.stories.get(d)?.status)) ? "ready" : "blocked";
     s.blockedReason = undefined;
     s.updatedAt = now();
     this.store.put("stories", s);
@@ -362,6 +501,106 @@ ${languageRule()}`,
       this.store.put("goals", g);
     }
     void this.tick();
+  }
+
+  /** Skip a step: the steps after it go ahead, told why (the note is required). */
+  skipStory(storyId: string, note: string) {
+    const s = this.mustStory(storyId);
+    note = note.trim();
+    if (!note) throw new Error(tr("Say why it's skipped, so the next steps know."));
+    for (const a of this.active.values()) if (a.story === storyId) void this.cancelRun(a.run.id);
+    for (const ap of [...this.store.approvals.values()])
+      if (ap.subject === storyId) {
+        this.waiters.get(ap.id)?.(false);
+        this.waiters.delete(ap.id);
+        this.store.del("approvals", ap.id);
+      }
+    s.status = "skipped";
+    s.skipNote = note;
+    s.blockedReason = undefined;
+    s.updatedAt = now();
+    this.store.put("stories", s);
+    const f = this.store.features.get(s.feature);
+    if (f) {
+      f.brief.push({ kind: "note", text: `“${s.title}” was skipped by the user: ${note}`, source: "user" });
+      this.store.put("features", f);
+    }
+    const g = this.store.goals.get(s.goal);
+    if (g && g.status === "needs_human") {
+      g.status = "active";
+      g.note = undefined;
+      this.store.put("goals", g);
+    }
+    if (g) void this.checkCompletion(g);
+    void this.tick();
+  }
+
+  /** Say something to a running agent: its turn is interrupted, it reads this, then carries on. */
+  async interject(runId: string, text: string, from: "user" | "supervisor" = "user") {
+    const a = this.active.get(runId);
+    text = text.trim();
+    if (!a || !text) return false;
+    (a.pending ??= []).push({ from, text });
+    this.pushEvent(a.run, { t: "note", from, text });
+    await a.session?.interrupt().catch(() => {});
+    return true;
+  }
+
+  private supervising = new Set<string>();
+
+  /** Now and then: is each working agent still on its step? If it clearly drifted, correct it. */
+  private async superviseTick() {
+    if (this.config.supervise === false || this.paused) return;
+    for (const a of [...this.active.values()]) {
+      if (a.run.purpose !== "work" || !a.story || a.cancelled || this.supervising.has(a.run.id)) continue;
+      const age = Date.now() - Date.parse(a.run.startedAt);
+      if (age < 3 * 60_000 || Date.now() - a.checkedAt < 4 * 60_000 || a.sinceCheck < 6 || a.corrections >= 3) continue;
+      this.supervising.add(a.run.id);
+      void this.supervise(a).finally(() => this.supervising.delete(a.run.id));
+    }
+  }
+
+  private async supervise(a: ActiveRun) {
+    const s = this.store.stories.get(a.story!);
+    const g = s && this.store.goals.get(s.goal);
+    if (!s || !g) return;
+    a.checkedAt = Date.now();
+    a.sinceCheck = 0;
+    const minutes = Math.round((Date.now() - Date.parse(a.run.startedAt)) / 60_000);
+    const system = `You supervise an AI agent working on one step of a larger task. Judge only whether it is still working toward its step. Flag it ONLY when it has clearly gone off track: working on something unrelated or out of scope, or stuck repeating the same failing approach many times. Exploring, reading, testing and trying alternatives are normal and fine.
+Reply with only a JSON block: {"on_track": true|false, "reason": "one sentence", "correction": "if off track: a short, direct instruction to the agent to get back on track"}`;
+    const user = `Overall task: ${g.text}\n\nThe agent's step: ${s.title}\n${s.instructions}\n\nIt has been working for ${minutes} minutes. Its recent activity, oldest first:\n${a.recent.slice(-40).join("\n")}`;
+    let verdict: { on_track?: boolean; reason?: string; correction?: string } | undefined;
+    if (hasModel()) {
+      try {
+        verdict = extractJson(textOf(await complete(system, [{ role: "user", content: [{ type: "text", text: user }] }], [], 600)));
+      } catch {
+        /* no verdict this time */
+      }
+    } else {
+      // no model of our own: a cheap agent from the pool, without tools
+      const m = this.matchPeer("verify", "L1", { reserve: true });
+      const pick = m.peer ? m : this.matchPeer("analyze", "L1", { reserve: true });
+      if (!pick.peer) return;
+      const cwd = join(await agentsHome(), "scratch", "_supervise");
+      await ipc.fsMkdir({ kind: "local" }, cwd).catch(() => {});
+      const out = await this.runAgent<{ on_track?: boolean; reason?: string; correction?: string }>({
+        peer: pick.peer,
+        purpose: "supervise",
+        subject: s.id,
+        cwd,
+        role: { ...this.role("verify")!, permissionCeiling: { fs: "none", shell: "none", web: false, terminals: false } },
+        timeoutMin: 5,
+        release: pick.release,
+        prompt: `${system}\n\n${user}`,
+        validate: (v) => (typeof v?.on_track !== "boolean" ? 'It needs "on_track": true or false.' : null),
+      });
+      verdict = out.json;
+    }
+    if (!verdict || verdict.on_track !== false || !this.active.has(a.run.id)) return;
+    a.corrections++;
+    const text = (verdict.correction || verdict.reason || "").trim();
+    if (text) await this.interject(a.run.id, `${text}${verdict.reason && verdict.correction ? ` (${verdict.reason})` : ""}`, "supervisor");
   }
 
   setPaused(p: boolean) {
@@ -459,11 +698,28 @@ ${languageRule()}`,
   storiesOf(goal: string) {
     return [...this.store.stories.values()].filter((s) => s.goal === goal);
   }
+  /** The user cancelled or skipped it (or removed it) while an agent was on it. */
+  private stopped(id: string) {
+    const st = this.store.stories.get(id)?.status;
+    return st === undefined || st === "cancelled" || st === "skipped";
+  }
   isStoryActive(id: string) {
     return [...this.active.values()].some((a) => a.story === id);
   }
+  /** Slots in use: running sessions plus ones picked but not started yet (no overbooking). */
   private peerLoad(peerId: string) {
-    return [...this.active.values()].filter((a) => a.run.peer === peerId).length;
+    return [...this.active.values()].filter((a) => a.run.peer === peerId).length + (this.reserved.get(peerId) ?? 0);
+  }
+  private reserved = new Map<string, number>();
+  /** Hold one of a peer's slots until its session starts (or the caller gives up). */
+  private reserve(peerId: string) {
+    this.reserved.set(peerId, (this.reserved.get(peerId) ?? 0) + 1);
+    let done = false;
+    return () => {
+      if (done) return;
+      done = true;
+      this.reserved.set(peerId, Math.max(0, (this.reserved.get(peerId) ?? 1) - 1));
+    };
   }
 
   private async isGit(path: string) {
@@ -491,8 +747,8 @@ ${languageRule()}`,
   matchPeer(
     roleId: string,
     minTier: Tier,
-    opts: { story?: Story; exclude?: string[]; needCapacity?: boolean } = {},
-  ): { peer?: PeerConfig; reason?: string; busy?: boolean } {
+    opts: { story?: Story; exclude?: string[]; needCapacity?: boolean; reserve?: boolean } = {},
+  ): { peer?: PeerConfig; reason?: string; busy?: boolean; release?: () => void } {
     const role = this.role(roleId);
     const tryRoles = [roleId, ...(role?.parent ? [role.parent] : [])];
     const goal = opts.story ? this.store.goals.get(opts.story.goal) : undefined;
@@ -511,9 +767,12 @@ ${languageRule()}`,
       });
       if (!cands.length) return { reason: tr("No available “{0}” agent can take this", { 0: rid }) };
       const qualified = cands.filter((p) => tierIdx(p.tier) >= tierIdx(minTier) && !(opts.story && opts.story.risk !== "read" && p.tier === "L1"));
-      if (!qualified.length) return { reason: tr("No “{0}” agent at {1} or above", { 0: rid, 1: minTier }) };
-      let pool = qualified.filter((p) => !(opts.exclude ?? []).includes(p.id));
-      if (!pool.length) pool = qualified;
+      if (!qualified.length) return { reason: tr("No “{0}” agent at {1} or above", { 0: rid, 1: tierLabel(minTier) }) };
+      // only the lowest level that can take it: busy agents there mean waiting, not a stronger agent
+      const level = Math.min(...qualified.map((p) => tierIdx(p.tier)));
+      const sameLevel = qualified.filter((p) => tierIdx(p.tier) === level);
+      let pool = sameLevel.filter((p) => !(opts.exclude ?? []).includes(p.id));
+      if (!pool.length) pool = sameLevel;
       if (opts.story?.pinnedPeer) {
         const pinned = pool.find((p) => p.id === opts.story!.pinnedPeer);
         if (pinned) pool = [pinned];
@@ -530,13 +789,9 @@ ${languageRule()}`,
           (b.priority ?? 0) - (a.priority ?? 0) ||
           this.peerLoad(a.id) / a.maxConcurrent - this.peerLoad(b.id) / b.maxConcurrent,
       );
-      return { peer: free[0] };
+      return { peer: free[0], release: opts.reserve ? this.reserve(free[0].id) : undefined };
     }
     return { reason: tr("No agent has the “{0}” role", { 0: roleId }) };
-  }
-
-  private capacityLeft() {
-    return this.config.limits.maxConcurrentRuns - this.active.size;
   }
 
   // ------------------------------------------------------------------ scheduler
@@ -549,7 +804,7 @@ ${languageRule()}`,
       for (const s of this.store.stories.values()) {
         if (s.status !== "blocked") continue;
         const deps = s.dependsOn.map((d) => this.store.stories.get(d));
-        if (deps.every((d) => d?.status === "done")) {
+        if (deps.every((d) => isSettled(d?.status))) {
           s.status = "ready";
           s.blockedReason = undefined;
           s.updatedAt = now();
@@ -560,7 +815,7 @@ ${languageRule()}`,
             ? tr("Earlier task “{0}”: {1}", { 0: bad.title, 1: tr(STATUS_LABEL[bad.status]) })
             : tr("Waiting for {0}", {
                 0: deps
-                  .filter((d) => d?.status !== "done")
+                  .filter((d) => !isSettled(d?.status))
                   .map((d) => `“${d?.title ?? "?"}”`)
                   .join(", "),
               });
@@ -580,14 +835,13 @@ ${languageRule()}`,
         return;
       }
       for (const g of this.store.goals.values()) {
-        if (g.status !== "planning" || this.planning.has(g.id) || this.capacityLeft() <= 0) continue;
+        if (g.status !== "planning" || this.planning.has(g.id)) continue;
         void this.planGoal(g);
       }
       const ready = [...this.store.stories.values()]
         .filter((s) => s.status === "ready" && !this.isStoryActive(s.id))
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
       for (const s of ready) {
-        if (this.capacityLeft() <= 0) break;
         const g = this.store.goals.get(s.goal);
         if (!g || g.status !== "active") continue;
         // plain folders can't be branched: one writer at a time
@@ -603,7 +857,7 @@ ${languageRule()}`,
         let tier = bumpTier(s.minTier, Math.max(0, failures - 1));
         while (tierIdx(tier) > tierIdx(s.minTier) && !this.matchPeer(s.role, tier, { story: s, needCapacity: false }).peer) tier = bumpTier(tier, -1);
         const lastPeer = s.attempts.at(-1)?.peer;
-        const m = this.matchPeer(s.role, tier, { story: s, exclude: failures && lastPeer ? [lastPeer] : [] });
+        const m = this.matchPeer(s.role, tier, { story: s, exclude: failures && lastPeer ? [lastPeer] : [], reserve: true });
         if (!m.peer) {
           if (s.blockedReason !== m.reason) {
             s.blockedReason = m.reason;
@@ -611,7 +865,7 @@ ${languageRule()}`,
           }
           continue;
         }
-        void this.workStory(s, m.peer, tier);
+        void this.workStory(s, m.peer, tier, m.release!);
       }
     } finally {
       this.ticking = false;
@@ -640,6 +894,24 @@ ${languageRule()}`,
 
   private pushEvent(run: AgentRun, e: AgentEvent) {
     this.store.appendRunEvent(run.id, e);
+    const a = this.active.get(run.id);
+    if (a) {
+      const line =
+        e.t === "tool" && e.status !== "completed" && e.status !== "failed"
+          ? null
+          : e.t === "tool"
+            ? `tool ${e.status}: ${e.title}${e.detail ? ` — ${e.detail.replace(/\s+/g, " ").slice(0, 160)}` : ""}`
+            : e.t === "text"
+              ? `says: ${e.text.replace(/\s+/g, " ").slice(0, 200)}`
+              : e.t === "error"
+                ? `error: ${e.message.slice(0, 200)}`
+                : null;
+      if (line) {
+        a.recent.push(line);
+        if (a.recent.length > 60) a.recent.splice(0, a.recent.length - 60);
+        a.sinceCheck++;
+      }
+    }
     let changed = false;
     if (e.t === "usage") {
       run.usage = { ...run.usage, ...Object.fromEntries(Object.entries(e.usage).filter(([, v]) => v !== undefined)) };
@@ -706,12 +978,19 @@ ${languageRule()}`,
     prompt: string;
     role: RoleDef;
     timeoutMin: number;
-  }): Promise<{ run: AgentRun; text: string; json?: T; error?: string }> {
+    /** Reservation from matchPeer, released once this session counts as running. */
+    release?: () => void;
+    /** What's wrong with the parsed JSON (null = fine); the agent gets to fix it. */
+    validate?: (json: T) => string | null;
+    /** false: a plain answer is expected (no JSON block). */
+    expectJson?: boolean;
+  }): Promise<{ run: AgentRun; text: string; prose: string; json?: T; error?: string }> {
     const rt = this.runtime(p.peer.runtime)!;
     const run: AgentRun = { id: this.store.nextId("R"), peer: p.peer.id, purpose: p.purpose, subject: p.story ?? p.subject, status: "starting", startedAt: now() };
     this.store.put("runs", run);
-    const active: ActiveRun = { run, story: p.story };
+    const active: ActiveRun = { run, story: p.story, recent: [], sinceCheck: 0, checkedAt: Date.now(), corrections: 0 };
     this.active.set(run.id, active);
+    p.release?.();
     this.sync();
     const ceiling = p.role.permissionCeiling;
     const cwd = rt.remote ? (rt.remote.workdir || "/tmp") : p.cwd;
@@ -726,6 +1005,7 @@ ${languageRule()}`,
     });
     active.session = session;
     let text = "";
+    let prose = "";
     let json: T | undefined;
     let error: string | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -739,16 +1019,37 @@ ${languageRule()}`,
       await Promise.race([session.start(), timeout]);
       run.status = "running";
       this.store.put("runs", run);
-      const r1 = await Promise.race([session.prompt(p.prompt), timeout]);
+      let r1 = await Promise.race([session.prompt(p.prompt), timeout]);
       text = r1.text;
-      json = extractJson<T>(text);
-      if (!json && !active.cancelled && r1.stopReason !== "cancelled") {
-        const r2 = await Promise.race([session.prompt(JSON_REMINDER), timeout]);
-        json = extractJson<T>(r2.text);
-        text += `\n${r2.text}`;
+      // someone stepped in (the user, or the supervisor): the turn was interrupted to say it
+      for (let n = 0; active.pending?.length && !active.cancelled && n < 8; n++) {
+        const msgs = active.pending.splice(0);
+        const said = msgs
+          .map((m) => (m.from === "user" ? `Message from the user: ${m.text}` : `Note from your supervisor: ${m.text}`))
+          .join("\n\n");
+        r1 = await Promise.race([
+          session.prompt(`${said}\n\nTake this into account and continue the task. When you are finished, reply as originally asked (the answer for the user, then the JSON block).`),
+          timeout,
+        ]);
+        text += `\n${r1.text}`;
+      }
+      prose = proseOnly(r1.final ?? r1.text);
+      json = p.expectJson === false ? undefined : extractJson<T>(text);
+      let problem = json ? (p.validate?.(json) ?? null) : null;
+      const wantJson = p.expectJson !== false;
+      // not in the required format: ask again (a few rounds), saying what was wrong
+      for (let round = 0; wantJson && round < 3 && (!json || problem) && !active.cancelled && r1.stopReason !== "cancelled"; round++) {
+        const ask = json ? `${JSON_FIX}\n${problem}` : JSON_REMINDER;
+        this.pushEvent(run, { t: "stderr", text: tr("Reply not in the required format — asking again ({0}/3)", { 0: round + 1 }) });
+        const r = await Promise.race([session.prompt(ask), timeout]);
+        text += `\n${r.text}`;
+        if (!prose) prose = proseOnly(r.final ?? r.text);
+        json = extractJson<T>(r.text) ?? json;
+        problem = json ? (p.validate?.(json) ?? null) : null;
       }
       if (active.cancelled) error = "cancelled";
-      else if (!json) error = tr("the agent did not return the required JSON");
+      else if (!json && wantJson) error = tr("the agent did not return the required JSON");
+      else if (problem) error = tr("the agent's reply is incomplete: {0}", { 0: problem });
     } catch (e) {
       error = active.cancelled ? "cancelled" : e instanceof Error ? e.message : String(e);
       this.pushEvent(run, { t: "error", message: error });
@@ -778,7 +1079,7 @@ ${languageRule()}`,
       this.sync();
       setTimeout(() => void this.tick(), 50);
     }
-    return { run, text, json, error };
+    return { run, text, prose, json, error };
   }
 
   // ------------------------------------------------------------------ planning
@@ -797,9 +1098,13 @@ ${languageRule()}`,
 
   private async planGoal(g: Goal, feedback?: string): Promise<void> {
     this.planning.add(g.id);
+    let releasePlanner: (() => void) | undefined;
     try {
-      const m = this.matchPeer("plan", "L3");
-      const planner = m.peer ?? this.matchPeer("plan", "L1").peer ?? this.matchPeer("analyze", "L2").peer;
+      const m = this.matchPeer("plan", "L3", { reserve: true });
+      const alt = m.peer ? m : this.matchPeer("plan", "L1", { reserve: true });
+      const pick = alt.peer ? alt : this.matchPeer("analyze", "L2", { reserve: true });
+      const planner = pick.peer;
+      releasePlanner = pick.release;
       if (!planner) {
         if (m.busy || this.matchPeer("plan", "L1", { needCapacity: false }).peer) return; // busy: next tick
         g.status = "needs_human";
@@ -818,9 +1123,25 @@ ${languageRule()}`,
         peers: this.config.peers,
         machines: this.machines(),
         feedback,
+        knowledge: await knowledgeFor([g.text, ...g.messages.map((m) => m.text)].join("\n"), { budget: 2500, extract: this.extractor() }),
       });
       // biome-ignore lint/suspicious/noExplicitAny: parsed plan
-      const out = await this.runAgent<any>({ peer: planner, purpose: "plan", subject: g.id, cwd, prompt, role: this.role("plan")!, timeoutMin: 20 });
+      const out = await this.runAgent<any>({
+        peer: planner,
+        purpose: "plan",
+        subject: g.id,
+        cwd,
+        prompt,
+        role: this.role("plan")!,
+        timeoutMin: 20,
+        release: releasePlanner,
+        validate: (j) =>
+          !Array.isArray(j?.features) && !Array.isArray(j?.questions)
+            ? 'It needs a "features" array (or "questions" when the goal is unclear).'
+            : (j.features ?? []).some((f: { stories?: unknown }) => !Array.isArray(f?.stories))
+              ? 'Every feature needs a "stories" array.'
+              : null,
+      });
       if (this.store.goals.get(g.id)?.status !== "planning") return;
       if (out.error && this.store.probes.get(planner.runtime)?.ok === false) return; // runtime just went bad → another planner next tick
       if (out.error || !out.json) {
@@ -852,6 +1173,7 @@ ${languageRule()}`,
       }
       this.materializePlan(g, feats);
     } finally {
+      releasePlanner?.();
       this.planning.delete(g.id);
     }
   }
@@ -864,7 +1186,7 @@ ${languageRule()}`,
     for (const f of plan?.features ?? []) for (const s of f.stories ?? []) keys.add(s.key);
     for (const f of plan?.features ?? [])
       for (const s of f.stories ?? []) {
-        if (!s.key || !s.title || !s.instructions) p.push(`story ${s.key ?? "?"} is missing key/title/instructions`);
+        if (!s.key || !s.title || !(s.instructions || s.objective)) p.push(`story ${s.key ?? "?"} is missing key/title/objective`);
         if (!roleIds.has(s.role)) p.push(`story ${s.key}: role "${s.role}" doesn't exist; choose from ${[...roleIds].join(", ")}`);
         if (s.minTier && !TIERS.includes(s.minTier)) p.push(`story ${s.key}: minTier "${s.minTier}" is invalid`);
         for (const d of s.dependsOn ?? []) if (!keys.has(d)) p.push(`story ${s.key} depends on unknown ${d}`);
@@ -919,7 +1241,10 @@ ${languageRule()}`,
           feature: fe.id,
           goal: g.id,
           title: String(s.title),
-          instructions: String(s.instructions),
+          instructions: String(s.instructions ?? ""),
+          objective: s.objective ? String(s.objective) : undefined,
+          steps: Array.isArray(s.steps) ? s.steps.map(String).filter(Boolean) : undefined,
+          deliverables: Array.isArray(s.deliverables) ? s.deliverables.map(String).filter(Boolean) : undefined,
           acceptance,
           dependsOn: (s.dependsOn ?? []).map(String),
           role: s.role,
@@ -957,7 +1282,7 @@ ${languageRule()}`,
     return { cwd: dir, git: false };
   }
 
-  private async workStory(s: Story, peer: PeerConfig, tier: Tier) {
+  private async workStory(s: Story, peer: PeerConfig, tier: Tier, release: () => void) {
     const g = this.mustGoal(s.goal);
     const f = this.store.features.get(s.feature)!;
     const baseRole = this.role(s.role) ?? this.role("build")!;
@@ -982,6 +1307,7 @@ ${languageRule()}`,
     try {
       ({ cwd, git: isGit } = await this.prepareCwd(g, s));
     } catch (e) {
+      release();
       attempt.outcome = "error";
       attempt.error = `workspace: ${(e as Error).message}`;
       return this.afterFailure(s, attempt.error);
@@ -990,6 +1316,8 @@ ${languageRule()}`,
       .map((d) => this.store.stories.get(d))
       .filter((d): d is Story => !!d)
       .map((d) => {
+        if (d.status === "skipped")
+          return `### ${d.id} ${d.title}\nSKIPPED by the user — it was not done. The user's note: ${d.skipNote ?? "(none)"}\nWork with that: don't assume its results exist.`;
         const h = d.handoff;
         return `### ${d.id} ${d.title}\n${h?.summary ?? ""}${h?.changes?.length ? `\nChanges:\n${h.changes.map((c) => `- ${c.resource}: ${c.what}`).join("\n")}` : ""}${h?.decisions?.length ? `\nDecisions:\n${h.decisions.map((x) => `- ${x.text} (${x.why})`).join("\n")}` : ""}${h?.findings?.length ? `\nFindings:\n${h.findings.map((x) => `- ${x.claim} [${x.source}]`).join("\n")}` : ""}`;
       });
@@ -998,18 +1326,38 @@ ${languageRule()}`,
     const out = await this.runAgent<Handoff>({
       peer,
       purpose: "work",
+      release,
       subject: s.id,
       story: s.id,
       cwd,
       role,
       timeoutMin: s.budget.wallclockMin,
-      prompt: workPrompt({ story: s, feature: f, role, cwd, depHandoffs, lastFailure, isGit }),
+      prompt: workPrompt({
+        story: s,
+        feature: f,
+        role,
+        cwd,
+        depHandoffs,
+        lastFailure,
+        isGit,
+        knowledge: await knowledgeFor([s.title, s.objective ?? "", ...(s.steps ?? []), s.instructions].join("\n"), { budget: 1800, extract: this.extractor() }),
+      }),
+      validate: (h) =>
+        typeof h?.summary !== "string" || !h.summary.trim()
+          ? 'The handoff needs a non-empty "summary": the result in 1-3 sentences.'
+          : h.outcome && !["done", "needs_split", "needs_info", "failed"].includes(h.outcome)
+            ? '"outcome" must be one of "done", "needs_split", "needs_info", "failed".'
+            : null,
     });
     attempt.run = out.run.id;
-    if (this.store.stories.get(s.id)?.status === "cancelled") {
-      attempt.outcome = "error";
-      attempt.error = "cancelled";
-      this.store.put("stories", s);
+    if (this.stopped(s.id)) {
+      // keep the user's status (cancelled / skipped); just record how the attempt ended
+      const cur = this.store.stories.get(s.id);
+      if (cur) {
+        attempt.outcome = "error";
+        attempt.error = cur.status;
+        this.store.put("stories", { ...s, status: cur.status, skipNote: cur.skipNote });
+      }
       return;
     }
     if (out.error && this.store.probes.get(peer.runtime)?.ok === false) {
@@ -1027,6 +1375,7 @@ ${languageRule()}`,
     }
     const h = normalizeHandoff(out.json);
     s.handoff = h;
+    s.output = out.prose || undefined;
     attempt.outcome = h.outcome;
     if (h.outcome === "needs_split" || h.outcome === "needs_info") {
       s.status = h.outcome === "needs_split" ? "needs_split" : "needs_human";
@@ -1072,7 +1421,9 @@ ${languageRule()}`,
       const vt: Tier = s.risk === "read" ? "L1" : attempt.tier;
       // wait for a free verifier slot (up to 20 min) rather than failing the story
       for (let i = 0; i < 600 && this.matchPeer("verify", vt, { story: s }).busy; i++) await sleep(2000);
-      const verifier = this.matchPeer("verify", vt, { story: s }).peer ?? this.matchPeer("analyze", vt, { story: s }).peer;
+      const vm = this.matchPeer("verify", vt, { story: s, reserve: true });
+      const vpick = vm.peer ? vm : this.matchPeer("analyze", vt, { story: s, reserve: true });
+      const verifier = vpick.peer;
       if (!verifier) {
         if (!hasCmd) {
           s.status = "needs_human";
@@ -1087,11 +1438,13 @@ ${languageRule()}`,
         const out = await this.runAgent<Verdict>({
           peer: verifier,
           purpose: "verify",
+          release: vpick.release,
           subject: s.id,
           story: s.id,
           cwd,
           role: this.role("verify")!,
           timeoutMin: 20,
+          validate: (v) => (typeof v?.pass !== "boolean" ? 'The verdict needs "pass": true or false, and a "reason".' : null),
           prompt: verifyPrompt({
             story: s,
             diff,
@@ -1103,7 +1456,7 @@ ${languageRule()}`,
         });
         if (out.error || !out.json) {
           attempt.verify = { pass: false, reason: tr("The verifier failed: {0}", { 0: out.error ?? "" }), by: out.run.id };
-          if (this.store.stories.get(s.id)?.status === "cancelled") return;
+          if (this.stopped(s.id)) return;
           s.status = "needs_human";
           s.blockedReason = attempt.verify.reason;
           s.updatedAt = now();
@@ -1117,6 +1470,7 @@ ${languageRule()}`,
     } else attempt.verify = { pass: true, reason: tr("All checks passed"), by: "command" };
 
     const g = this.mustGoal(s.goal);
+    if (this.stopped(s.id)) return; // skipped or cancelled while it was being checked
     if (isGit) {
       try {
         await ws.mergeStory(g.workspace!, g.id, s.id, s.title);
@@ -1141,7 +1495,7 @@ ${languageRule()}`,
   }
 
   private afterFailure(s: Story, reason: string) {
-    if (this.store.stories.get(s.id)?.status === "cancelled") return;
+    if (this.stopped(s.id)) return;
     if (s.attempts.length >= s.budget.attempts) {
       s.status = "needs_human";
       s.blockedReason = tr("Still failing after {0} attempts: {1}", { 0: s.attempts.length, 1: reason }).slice(0, 1500);
@@ -1157,14 +1511,14 @@ ${languageRule()}`,
     const feats = [...this.store.features.values()].filter((f) => f.goal === g.id);
     for (const f of feats) {
       const ss = this.storiesOf(g.id).filter((s) => s.feature === f.id && s.status !== "cancelled");
-      if (ss.length && ss.every((s) => s.status === "done") && f.status !== "done") {
+      if (ss.length && ss.every((s) => isSettled(s.status)) && f.status !== "done") {
         f.status = "done";
         this.store.put("features", f);
       }
     }
     const allDone =
       feats.length &&
-      feats.every((f) => f.status === "done" || this.storiesOf(g.id).filter((s) => s.feature === f.id).every((s) => s.status === "cancelled"));
+      feats.every((f) => f.status === "done" || this.storiesOf(g.id).filter((s) => s.feature === f.id).every((s) => s.status === "cancelled" || s.status === "skipped"));
     if (!allDone || g.status === "done") return;
     let approval: Omit<PendingApproval, "id" | "createdAt"> | undefined;
     if (g.workspace && (await this.isGit(g.workspace))) {
@@ -1219,3 +1573,8 @@ if (import.meta.hot) import.meta.hot.data.forge = forge;
 
 // Dev-only handle for debugging / automated checks over CDP.
 if (import.meta.env.DEV) (window as unknown as { __forge: Engine }).__forge = forge;
+
+/** Done, or skipped by the user: the steps after it may go ahead. */
+function isSettled(status: string | undefined) {
+  return status === "done" || status === "skipped";
+}

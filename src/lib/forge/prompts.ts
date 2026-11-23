@@ -17,6 +17,7 @@ export function planPrompt(args: {
   peers: PeerConfig[];
   machines: string;
   feedback?: string;
+  knowledge?: string;
 }) {
   const roles = args.roles
     .filter((r) => r.enabled !== false && r.kind !== "system")
@@ -48,7 +49,7 @@ ${
 ## Machines
 ${args.machines}
 Stories that must look at or act on these machines need the \`operate\` role: its workers use rainterm's terminals (they can open a terminal on a saved SSH host and run commands there; risky commands are confirmed by the user).
-
+${args.knowledge ? `\n${args.knowledge}\nPass what workers need from these notes into their instructions (workers also see matching notes themselves).\n` : ""}
 ## Rules for a US (all must hold, otherwise split further)
 1. One worker can finish it in one session (roughly < 30 minutes of agent work).
 2. It has checkable acceptance criteria. Prefer \`command\` checks that exit 0 on success (build, typecheck, tests, grep). Commands run with \`bash -c\` in the workspace root (Git Bash on Windows): use POSIX shell syntax and keep them short. Use \`llm_judge\` only for what commands cannot check. Use \`file_exists\` for paths relative to the workspace root. Stories without a workspace, or that work on remote machines, use \`llm_judge\`.
@@ -78,7 +79,11 @@ End your reply with exactly one fenced JSON block:
   "features": [
     { "key": "F1", "title": "...", "objective": "...", "constraints": ["..."],
       "stories": [
-        { "key": "S1", "title": "...", "instructions": "...",
+        { "key": "S1", "title": "short title",
+          "objective": "one sentence: what this step achieves",
+          "steps": ["concrete step", "..."],
+          "deliverables": ["what it hands over: a file (path), an answer, a change…"],
+          "instructions": "extra context and details the worker needs (files, interfaces, hosts, constraints)",
           "acceptance": [{ "kind": "command", "spec": "npm test" }],
           "dependsOn": [], "role": "build", "minTier": "L2", "risk": "change" }
       ] }
@@ -96,6 +101,7 @@ export function workPrompt(args: {
   depHandoffs: string[];
   lastFailure?: string;
   isGit: boolean;
+  knowledge?: string;
 }) {
   const { story: s, feature: f, role } = args;
   const brief = f.brief
@@ -118,15 +124,15 @@ ${brief ? `Brief:\n${brief}` : ""}
 ${args.depHandoffs.length ? `\n## Handoffs from stories you depend on\n${args.depHandoffs.join("\n\n")}` : ""}
 
 ## Your story ${s.id}: ${s.title}
-${s.instructions}
+${s.objective ? `Objective: ${s.objective}\n` : ""}${s.steps?.length ? `Steps:\n${s.steps.map((x, i) => `${i + 1}. ${x}`).join("\n")}\n` : ""}${s.deliverables?.length ? `Deliverables:\n${s.deliverables.map((x) => `- ${x}`).join("\n")}\n` : ""}${s.instructions}
 
 Do only this story. Other parts of the feature are separate stories handled by other agents — do not implement them, even if they look related.
 
 ## Acceptance (checked independently after you finish)
 ${s.acceptance.map((a) => `- [${a.kind}] ${a.spec}`).join("\n") || "- (none given; do what the instructions say)"}
 ${args.lastFailure ? `\n## Previous attempt failed\n${args.lastFailure}\nFix this.` : ""}
-
-When finished, write a short answer for the user in plain prose (what you found or did — this is what they read), then end your reply with exactly one fenced JSON block (the handoff):
+${args.knowledge ? `\n${args.knowledge}\n` : ""}
+When finished, write your answer for the user in Markdown — what you found or did, with the details that matter (headings, lists, tables or code where they help). This is what they read, so make it complete on its own, and put only the answer there — no narration of what you are about to do or did step by step. Then end your reply with exactly one fenced JSON block (the handoff):
 \`\`\`json
 { "summary": "the result in 1-3 sentences — for a question, the answer itself",
   "changes": [{ "resource": "path/or/thing", "what": "..." }],
@@ -175,6 +181,22 @@ End your reply with exactly one fenced JSON block:
 
 export const JSON_REMINDER =
   "Your reply did not end with a valid fenced ```json block in the required format. Reply now with ONLY that JSON block, nothing else.";
+
+export const JSON_FIX =
+  "Your JSON block is missing something required. Reply now with ONLY the corrected, complete fenced ```json block. What's wrong:";
+
+/** Drop the machine-readable parts of a reply (JSON handoffs, plans, verdicts): what people read. */
+export function proseOnly(text: string) {
+  let t = text.replace(/```[a-zA-Z]*[ \t]*\n([\s\S]*?)(?:```|$)/g, (m, body: string) => (/^\s*[[{]/.test(body) ? "" : m));
+  const i = t.search(/\n\s*\{[\s\S]*\}\s*$/);
+  if (i >= 0) {
+    try {
+      JSON.parse(t.slice(i));
+      t = t.slice(0, i);
+    } catch {}
+  }
+  return t.replace(/\n{3,}/g, "\n\n").trim();
+}
 
 /** The last fenced JSON block (or bare JSON object) in a reply. */
 // biome-ignore lint/suspicious/noExplicitAny: parsed model output

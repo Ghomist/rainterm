@@ -6,6 +6,7 @@ mod llm;
 mod mcp;
 mod highlight;
 mod history;
+mod kb;
 mod keys;
 mod monitor;
 mod proc;
@@ -370,6 +371,55 @@ fn agents_log_read(run: String) -> CmdResult<String> {
     proc::log_read(&run).map_err(err)
 }
 
+// ------------------------------------------------------------------ knowledge base
+
+#[tauri::command]
+fn kb_dir() -> CmdResult<String> {
+    kb::dir().map(|p| p.to_string_lossy().into_owned()).map_err(err)
+}
+
+#[tauri::command]
+async fn kb_list() -> CmdResult<Vec<kb::Entry>> {
+    tauri::async_runtime::spawn_blocking(kb::list).await.map_err(err)?.map_err(err)
+}
+
+#[tauri::command]
+async fn kb_read(id: String) -> CmdResult<kb::Doc> {
+    tauri::async_runtime::spawn_blocking(move || kb::read(&id)).await.map_err(err)?.map_err(err)
+}
+
+#[tauri::command]
+async fn kb_save(id: Option<String>, title: String, tags: Vec<String>, body: String, source: Option<String>) -> CmdResult<String> {
+    tauri::async_runtime::spawn_blocking(move || kb::save(id.as_deref(), &title, &tags, &body, source.as_deref().unwrap_or("user")))
+        .await
+        .map_err(err)?
+        .map_err(err)
+}
+
+#[tauri::command]
+async fn kb_delete(id: String) -> CmdResult<()> {
+    tauri::async_runtime::spawn_blocking(move || kb::delete(&id)).await.map_err(err)?.map_err(err)
+}
+
+#[tauri::command]
+async fn kb_import(paths: Vec<String>) -> CmdResult<usize> {
+    tauri::async_runtime::spawn_blocking(move || kb::import(&paths)).await.map_err(err)?.map_err(err)
+}
+
+#[tauri::command]
+async fn kb_search(query: String, limit: Option<usize>) -> CmdResult<Vec<kb::Hit>> {
+    tauri::async_runtime::spawn_blocking(move || kb::search(&query, limit.unwrap_or(8))).await.map_err(err)?.map_err(err)
+}
+
+/// Search results / a note as text for a model (built-in agent tools).
+#[tauri::command]
+async fn kb_tool(name: String, args: serde_json::Value) -> CmdResult<String> {
+    tauri::async_runtime::spawn_blocking(move || kb::tool(&name, &args))
+    .await
+    .map_err(err)?
+    .map_err(err)
+}
+
 #[tauri::command]
 fn path_stat(path: String) -> proc::PathInfo {
     proc::stat(&path)
@@ -646,8 +696,13 @@ fn set_window_appearance(window: tauri::WebviewWindow, dark: Option<bool>) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // One TLS backend (ring) for every HTTPS client: the model APIs and the updater.
+    let _ = rustls::crypto::ring::default_provider().install_default();
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        // Updates: signed installers from GitHub releases (latest.json), then a restart.
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         // Remember window size / position / maximized state between launches.
@@ -671,6 +726,14 @@ pub fn run() {
             agents_log_append,
             agents_log_read,
             path_stat,
+            kb_dir,
+            kb_list,
+            kb_read,
+            kb_save,
+            kb_delete,
+            kb_import,
+            kb_search,
+            kb_tool,
             file_read_text,
             file_write_text,
             list_serial_ports,

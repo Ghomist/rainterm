@@ -7,6 +7,7 @@ import {
   ArrowLeftToLine,
   ArrowRightToLine,
   ArrowUp,
+  BookOpen,
   Boxes,
   Bot,
   FolderTree,
@@ -21,7 +22,7 @@ import {
 import { AnimatePresence, motion } from "motion/react";
 import { beginLayoutAnimation, endLayoutAnimation } from "@/lib/layout-anim";
 import { ErrorBoundary } from "./ErrorBoundary";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -30,12 +31,13 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { Tooltip } from "@/components/ui/tooltip";
-import type { DockSide, ViewId } from "@/lib/settings";
+import { type DockSide, VIEW_GROUP, type ViewId } from "@/lib/settings";
 import { cn } from "@/lib/utils";
 import { useApp } from "@/store/app";
 import { AgentPanel } from "./AgentPanel";
 import { AgentsDock } from "./AgentsView";
 import { FilesView } from "./FilePanel";
+import { KnowledgePanel } from "./KnowledgePanel";
 import { MonitorPanel } from "./MonitorPanel";
 import { ContainersPanel, K8sPanel, PortsPanel } from "./OpsPanels";
 import { SessionsView } from "./Sidebar";
@@ -52,6 +54,7 @@ export const VIEWS: Record<ViewId, { label: string; icon: React.ReactNode; rende
   containers: { label: "Containers", icon: <Boxes />, render: () => <ContainersPanel /> },
   k8s: { label: "Kubernetes", icon: <Ship />, render: () => <K8sPanel /> },
   agents: { label: "Agent pool", icon: <Bot />, render: () => <AgentsDock /> },
+  knowledge: { label: "Knowledge base", icon: <BookOpen />, render: () => <KnowledgePanel /> },
 };
 
 /** Full-width, square rail cells flush with the window edge (no floating pills). */
@@ -170,15 +173,10 @@ function Rail({ side, views, shown }: { side: DockSide; views: ViewId[]; shown: 
   return (
     <div className="flex w-11 shrink-0 flex-col pb-1">
       {views.map((id, i) => (
-        <RailButton
-          key={id}
-          id={id}
-          side={side}
-          index={i}
-          count={views.length}
-          active={shown === id}
-          onClick={() => toggleView(id)}
-        />
+        <Fragment key={id}>
+          {i > 0 && VIEW_GROUP[views[i - 1]] !== VIEW_GROUP[id] && <div className="mx-3 my-1 h-px shrink-0 bg-ov/[0.08]" />}
+          <RailButton id={id} side={side} index={i} count={views.length} active={shown === id} onClick={() => toggleView(id)} />
+        </Fragment>
       ))}
       {side === "left" && (
         <>

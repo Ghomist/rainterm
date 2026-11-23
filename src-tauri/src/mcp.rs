@@ -155,10 +155,15 @@ async fn serve(mut sock: TcpStream, app: AppHandle, token: Arc<String>) -> anyho
             }
         };
         let path = req.path.split('?').next().unwrap_or("");
-        if path != "/mcp" {
-            respond(&mut sock, "404 Not Found", "text/plain", b"rainterm MCP endpoint is /mcp", &[]).await?;
-            continue;
-        }
+        // `/mcp/kb` serves only the knowledge tools (for agents that get no terminals).
+        let kb_only = match path {
+            "/mcp" => false,
+            "/mcp/kb" => true,
+            _ => {
+                respond(&mut sock, "404 Not Found", "text/plain", b"rainterm MCP endpoint is /mcp", &[]).await?;
+                continue;
+            }
+        };
         let auth_ok = req
             .headers
             .get("authorization")
@@ -198,13 +203,13 @@ async fn serve(mut sock: TcpStream, app: AppHandle, token: Arc<String>) -> anyho
             Value::Array(items) => {
                 let mut out = Vec::new();
                 for m in items {
-                    if let Some(r) = handle(&app, m).await {
+                    if let Some(r) = handle(&app, m, kb_only).await {
                         out.push(r);
                     }
                 }
                 out
             }
-            m => handle(&app, m).await.into_iter().collect(),
+            m => handle(&app, m, kb_only).await.into_iter().collect(),
         };
         let session = [("Mcp-Session-Id", "rainterm".to_string())];
         if replies.is_empty() {
@@ -219,7 +224,7 @@ async fn serve(mut sock: TcpStream, app: AppHandle, token: Arc<String>) -> anyho
 
 // ------------------------------------------------------------------ JSON-RPC
 
-async fn handle(app: &AppHandle, m: Value) -> Option<Value> {
+async fn handle(app: &AppHandle, m: Value, kb_only: bool) -> Option<Value> {
     let id = m.get("id").cloned();
     let method = m.get("method").and_then(|v| v.as_str()).unwrap_or("");
     // Notifications (no id) and client responses get no reply.
@@ -234,18 +239,19 @@ async fn handle(app: &AppHandle, m: Value) -> Option<Value> {
                 "protocolVersion": version,
                 "capabilities": { "tools": { "listChanged": false } },
                 "serverInfo": { "name": "rainterm", "version": env!("CARGO_PKG_VERSION") },
-                "instructions": "Terminals of the rainterm app the user is looking at. Commands you run appear in a real, visible terminal tab and may need the user's approval. Use list_terminals first; prefer non-interactive, bounded commands."
+                "instructions": if kb_only { KB_HINT.to_string() } else { format!("Terminals of the rainterm app the user is looking at. Commands you run appear in a real, visible terminal tab and may need the user's approval. Use list_terminals first; prefer non-interactive, bounded commands. {KB_HINT}") }
             }))
         }
         "ping" => ok(json!({})),
-        "tools/list" => ok(json!({ "tools": tools() })),
+        "tools/list" => ok(json!({ "tools": tools(kb_only) })),
         "tools/call" => {
             let name = m.pointer("/params/name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            if !tools().iter().any(|t| t["name"] == name) {
+            if !tools(kb_only).iter().any(|t| t["name"] == name) {
                 return err(-32602, format!("unknown tool: {name}"));
             }
             let args = m.pointer("/params/arguments").cloned().unwrap_or(json!({}));
-            match call(app, name, args).await {
+            let r = if crate::kb::TOOLS.contains(&name.as_str()) { knowledge(&name, &args).await } else { call(app, name, args).await };
+            match r {
                 Ok(r) => ok(r),
                 Err(e) => ok(json!({ "content": [{ "type": "text", "text": format!("{e:#}") }], "isError": true })),
             }
@@ -274,7 +280,24 @@ async fn call(app: &AppHandle, name: String, args: Value) -> anyhow::Result<Valu
     }
 }
 
-fn tools() -> Vec<Value> {
+const KB_HINT: &str = "The knowledge base (notes on the user's servers, projects, procedures and conventions, shared by every agent) is searchable with search_knowledge: check it before guessing at hosts, paths or house rules. When you learn something durable about their environment, save it with save_knowledge for next time.";
+
+/// The knowledge tools run here, without the window.
+async fn knowledge(name: &str, args: &Value) -> anyhow::Result<Value> {
+    let name = name.to_string();
+    let args = args.clone();
+    let text = tokio::task::spawn_blocking(move || crate::kb::tool(&name, &args)).await??;
+    Ok(json!({ "content": [{ "type": "text", "text": text }] }))
+}
+
+pub fn kb_tools() -> Vec<Value> {
+    crate::kb::tool_defs()
+}
+
+fn tools(kb_only: bool) -> Vec<Value> {
+    if kb_only {
+        return kb_tools();
+    }
     let term = json!({ "type": "string", "description": "Terminal id from list_terminals (default: the one the user is looking at)." });
     vec![
         json!({
@@ -324,6 +347,9 @@ fn tools() -> Vec<Value> {
             }, "additionalProperties": false }
         }),
     ]
+    .into_iter()
+    .chain(kb_tools())
+    .collect()
 }
 
 #[cfg(test)]
@@ -339,7 +365,7 @@ mod tests {
 
     #[test]
     fn tool_schemas() {
-        for t in tools() {
+        for t in tools(false).into_iter().chain(tools(true)) {
             assert!(t["name"].is_string() && t["inputSchema"]["type"] == "object");
         }
     }

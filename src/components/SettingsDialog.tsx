@@ -1,4 +1,4 @@
-import { Bot, Globe, Keyboard, Lock, Palette, Plus, RotateCcw, Sparkles, SquareTerminal, Trash2 } from "lucide-react";
+import { Bot, Globe, Info, Keyboard, Lock, Palette, Plus, RotateCcw, Sparkles, SquareTerminal, Trash2 } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -17,9 +17,10 @@ import { BackupSection } from "./settings-backup";
 import { SshKeysSection } from "./SshKeys";
 import { AgentSection } from "./settings-agent";
 import { KeyboardSection } from "./settings-keyboard";
+import { AboutSection } from "./Updater";
 import { LANGUAGES, systemLang, tr } from "@/lib/i18n";
 
-type Section = "appearance" | "terminal" | "agent" | "network" | "highlight" | "keyboard" | "security";
+type Section = "appearance" | "terminal" | "agent" | "network" | "highlight" | "keyboard" | "security" | "about";
 
 const sections: { id: Section; label: string; icon: React.ReactNode }[] = [
   { id: "appearance", label: "Appearance", icon: <Palette /> },
@@ -29,6 +30,7 @@ const sections: { id: Section; label: string; icon: React.ReactNode }[] = [
   { id: "highlight", label: "Highlighting", icon: <Sparkles /> },
   { id: "keyboard", label: "Shortcuts", icon: <Keyboard /> },
   { id: "security", label: "Security & backup", icon: <Lock /> },
+  { id: "about", label: "About & updates", icon: <Info /> },
 ];
 
 export function SettingsDialog() {
@@ -84,6 +86,7 @@ export function SettingsDialog() {
             )}
             {section === "highlight" && <HighlightSection />}
             {section === "keyboard" && <KeyboardSection />}
+            {section === "about" && <AboutSection />}
             {section === "security" && (
               <>
                 <Security />

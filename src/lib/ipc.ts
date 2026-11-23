@@ -151,6 +151,27 @@ export interface LlmMessage {
   content: LlmBlock[];
 }
 
+export interface KbEntry {
+  id: string;
+  title: string;
+  tags: string[];
+  /** "agent" for notes agents kept themselves. */
+  source: string;
+  updated: number;
+  size: number;
+  excerpt: string;
+}
+export interface KbDoc extends KbEntry {
+  body: string;
+}
+export interface KbHit {
+  id: string;
+  title: string;
+  section: string;
+  snippet: string;
+  score: number;
+}
+
 export interface LlmToolDef {
   name: string;
   description: string;
@@ -342,6 +363,15 @@ export const ipc = {
   agentsHome: () => invoke<string>("agents_home"),
   agentsLogAppend: (run: string, text: string) => invoke<void>("agents_log_append", { run, text }),
   agentsLogRead: (run: string) => invoke<string>("agents_log_read", { run }),
+  kbDir: () => invoke<string>("kb_dir"),
+  kbList: () => invoke<KbEntry[]>("kb_list"),
+  kbRead: (id: string) => invoke<KbDoc>("kb_read", { id }),
+  kbSave: (id: string | null, title: string, tags: string[], body: string, source?: "user" | "agent") =>
+    invoke<string>("kb_save", { id, title, tags, body, source: source ?? null }),
+  kbDelete: (id: string) => invoke<void>("kb_delete", { id }),
+  kbImport: (paths: string[]) => invoke<number>("kb_import", { paths }),
+  kbSearch: (query: string, limit?: number) => invoke<KbHit[]>("kb_search", { query, limit: limit ?? null }),
+  kbTool: (name: string, args: Record<string, unknown>) => invoke<string>("kb_tool", { name, args }),
   pathStat: (path: string) => invoke<{ exists: boolean; dir: boolean }>("path_stat", { path }),
   fileReadText: (path: string, max?: number) => invoke<string>("file_read_text", { path, max: max ?? null }),
   fileWriteText: (path: string, text: string) => invoke<void>("file_write_text", { path, text }),

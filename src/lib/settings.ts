@@ -2,12 +2,12 @@ import type { LangSetting } from "./i18n";
 import type { HighlightRule } from "./ipc";
 
 /** Tool views that live in the side docks. */
-export type ViewId = "sessions" | "agent" | "files" | "monitor" | "snippets" | "ports" | "containers" | "k8s" | "agents";
+export type ViewId = "sessions" | "agent" | "files" | "monitor" | "snippets" | "ports" | "containers" | "k8s" | "agents" | "knowledge";
 export type DockSide = "left" | "right";
-export const ALL_VIEWS: ViewId[] = ["sessions", "agent", "files", "monitor", "snippets", "ports", "containers", "k8s", "agents"];
+export const ALL_VIEWS: ViewId[] = ["sessions", "agent", "files", "monitor", "snippets", "ports", "containers", "k8s", "agents", "knowledge"];
 export const DEFAULT_DOCK: Record<DockSide, ViewId[]> = {
   left: ["sessions", "agent", "files", "snippets"],
-  right: ["agents", "monitor", "ports", "containers", "k8s"],
+  right: ["agents", "knowledge", "monitor", "ports", "containers", "k8s"],
 };
 
 /** A saved outbound proxy; its password (if any) lives in the OS keychain as `proxy:<id>`. */
@@ -160,6 +160,10 @@ export interface Settings {
   autoReconnect: boolean;
   /** UI language ("system" = the OS language). */
   language: LangSetting;
+  /** Look for a new version at start and every few hours. */
+  autoUpdate: boolean;
+  /** A version the user chose to skip (no reminder until a newer one). */
+  skipVersion: string | null;
 }
 
 export const DEFAULT_FONT =
@@ -213,6 +217,8 @@ export const DEFAULT_SETTINGS: Settings = {
   backdropBlur: 0,
   weatherIntensity: 0.6,
   glassOpacity: 0.6,
+  autoUpdate: true,
+  skipVersion: null,
   agent: DEFAULT_AGENT,
   mcp: DEFAULT_MCP,
   blockBadges: DEFAULT_BADGES,
@@ -228,9 +234,31 @@ export function normalizeDock(dock: Partial<Record<DockSide, ViewId[]>> | undefi
   const clean = (list: unknown) =>
     (Array.isArray(list) ? list : []).filter((v): v is ViewId => ALL_VIEWS.includes(v) && !seen.has(v) && !!seen.add(v));
   const out = { left: clean(dock?.left), right: clean(dock?.right) };
-  for (const v of ALL_VIEWS) if (!seen.has(v)) out[DEFAULT_DOCK.left.includes(v) ? "left" : "right"].push(v);
+  for (const v of [...DEFAULT_DOCK.left, ...DEFAULT_DOCK.right]) {
+    if (seen.has(v)) continue;
+    const side: DockSide = DEFAULT_DOCK.left.includes(v) ? "left" : "right";
+    // Next to the view it follows by default (knowledge after agents), else at the end.
+    const def = DEFAULT_DOCK[side];
+    const before = def.slice(0, def.indexOf(v)).reverse().find((x) => out[side].includes(x));
+    const at = before ? out[side].indexOf(before) + 1 : out[side].length;
+    out[side].splice(at, 0, v);
+  }
   return out;
 }
+
+/** Rail sections: a divider where one ends and the next starts (agents | monitoring). */
+export const VIEW_GROUP: Record<ViewId, string> = {
+  sessions: "general",
+  agent: "general",
+  files: "general",
+  snippets: "general",
+  agents: "ai",
+  knowledge: "ai",
+  monitor: "ops",
+  ports: "ops",
+  containers: "ops",
+  k8s: "ops",
+};
 
 export async function sha256Hex(text: string) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));

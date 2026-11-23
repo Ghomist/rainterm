@@ -5,7 +5,8 @@ Built with **Tauri 2** (Rust) + **React** + **shadcn/ui**, rendered by **xterm.j
 
 ## Download
 
-Grab the latest installer from **[Releases](https://github.com/Ghomist/rainterm/releases/latest)**:
+Grab the latest installer from **[Releases](https://github.com/Ghomist/rainterm/releases/latest)**
+(from 0.7.0 on, rainterm updates itself: a button appears in the title bar when a new version is out):
 
 | Platform | File |
 | --- | --- |
@@ -62,24 +63,32 @@ DeepSeek, …) and the Anthropic API; the key lives in the OS keychain (Settings
 **MCP server** (Settings → Agent, off by default) — lets other agents (Claude Code, Cursor, …) use your
 terminals over Streamable HTTP at `http://127.0.0.1:7323/mcp` (address and port configurable, bearer
 token required): list / open terminals, run commands, read output, send keys — visibly, with the same
-approval modes.
+approval modes — and search / read / save the knowledge base (`/mcp/kb` serves only those).
+
+**Knowledge base** (right dock) — Markdown notes in `~/.rainterm/knowledge` shared by every agent:
+the built-in agent, the agents board and MCP clients search it before guessing at your setup, save
+what they learn (hosts, paths, procedures, fixes — never secrets), and finished tasks are distilled
+into it automatically. Agents never get the notes wholesale: a few matching sections are recalled
+and cut down to what the task needs. Write or import notes yourself, or save any agent report.
 
 **Agents** (Ctrl+Shift+A, or Sessions → Local → Agents) — a multi-agent board in its own tab. Say what
 you want done; it is planned into tasks, each handed to the best-suited agent in your pool (Claude
 Code, Codex, opencode, pi or any agent speaking ACP, locally or on a saved SSH host, plus the model
 from Settings → Agent), checked by an independent verifier, and the result comes back as a short report.
-- Scrum board: tasks move through Planning → To do → In progress → Verifying → Needs you → Done,
-  dependencies drawn between cards; click a card for its details and the agents' output
+- Each goal is a row with its steps flowing left to right; pages for the goal and each step show the
+  objective, a timeline (newest first) and Markdown outputs you can copy or export
+- Skip a step with a note the next steps read; step in with a message while an agent works; a
+  supervisor checks long-running agents and corrects them when they drift
 - Code changes happen in isolated git worktrees and are merged into your branch only when you approve
 - Agents can work on your machines through rainterm's terminals and saved SSH hosts (risky commands
-  ask first); autonomy (cautious / balanced / hands-off), parallelism, daily spend limit, pause and
-  emergency stop in the Agent pool panel
+  ask first); autonomy (cautious / balanced / hands-off), per-agent quotas, daily spend limit, pause
+  and emergency stop in the Agent pool panel
 - Pool, roles and levels (lightweight → expert) are edited right in the panel; output language follows
   the UI language or is set per board
 
 **Side panels** — an icon rail on each edge; left and right panels open side by side, both resizable.
 Right-click an icon to move it to the other side. Default: Sessions, Agent, Files, Quick commands on the left;
-Monitor, Ports, Containers, Kubernetes on the right. Ctrl+Shift+B hides both.
+Agent pool, Knowledge base | Monitor, Ports, Containers, Kubernetes on the right. Ctrl+Shift+B hides both.
 
 **Quick ops** (for the active terminal's machine — this computer, or the SSH server)
 - **Resource monitor**: CPU, memory, GPU (NVIDIA) and NPU (Huawei Ascend, `npu-smi`), disks, processes (end / copy / reveal)
@@ -171,4 +180,5 @@ Settings, saved sessions, command history and logs live in `~/.rainterm` on ever
 (`%USERPROFILE%\.rainterm` on Windows; override with the `RAINTERM_HOME` environment variable).
 Data from older versions (the OS config dir) is copied over on first start.
 The agents board keeps its goals and pool in `agents.json` and agent logs, worktrees and scratch
-folders under `agents/`. Secrets are stored only in the OS keychain.
+folders under `agents/`; the knowledge base is the `knowledge/` folder. Secrets are stored only in
+the OS keychain.

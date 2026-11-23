@@ -1,8 +1,7 @@
-// The agents session: talk to the entry agent, watch goals get planned into tasks, worked
-// on by the agent pool, verified and merged — in a timeline like a terminal's scrollback.
-// Pool, live runs and approvals also sit in the "Agents" dock view (AgentsDock).
+// The agents session: a board of goals, each a small flow chart of its tasks, with pages
+// for a goal (report, follow-ups) and a task (output, checks, the agents' work). The pool,
+// approvals and live runs sit in the "Agent pool" dock view (AgentsDock).
 import {
-  ArrowUp,
   Bot,
   Check,
   ChevronRight,
@@ -10,46 +9,44 @@ import {
   CirclePause,
   CirclePlay,
   CircleStop,
-  Folder,
-  FolderOpen,
   GitMerge,
   Hand,
   Loader2,
-  MessageSquareReply,
   OctagonX,
-  Wrench,
-  LayoutDashboard,
-  MessagesSquare,
-  Plus,
+  SkipForward,
   PanelRight,
+  Plus,
   RotateCcw,
   Settings2,
   ShieldCheck,
   Trash2,
-  TriangleAlert,
+  Wrench,
   X,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ComboInput, NumberInput, Select, Switch } from "@/components/ui/controls";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { IconButton, PanelHeader } from "@/components/ui/panel";
 import { Tooltip } from "@/components/ui/tooltip";
 import { effectiveRoles, runtimeLabel, shortName, STATUS_LABEL, TIER_HINT, tierLabel } from "@/lib/forge/config";
-export { STATUS_LABEL };
 import { forge } from "@/lib/forge/engine";
-import { send } from "@/lib/forge/entry";
+import { newGoal } from "@/lib/forge/entry";
 import { OUTPUT_LANGUAGES } from "@/lib/forge/llm";
+import { proseOnly } from "@/lib/forge/prompts";
 import { useForge, useRunEvents } from "@/lib/forge/store";
-import { type AgentEvent, type AgentRun, type Autonomy, type Goal, type PendingApproval, type Status, type Story, TIERS, type Tier } from "@/lib/forge/types";
+import { type AgentEvent, type AgentRun, type Autonomy, type Goal, type PendingApproval, type Status, TIERS, type Tier } from "@/lib/forge/types";
 import { tr } from "@/lib/i18n";
-import { confirm } from "@/lib/overlay";
+import { confirm, toast } from "@/lib/overlay";
 import { cn } from "@/lib/utils";
 import { isViewOpen, type Pane, useApp } from "@/store/app";
-import { Markdown } from "./AgentPanel";
+import { RichMarkdown } from "@/components/ui/markdown";
 import { openAgentsSettings } from "./AgentsSettings";
-import { Kanban } from "./AgentsKanban";
+import { Board, GoalPage, TaskPage } from "./AgentsBoard";
 import { PaneHeader } from "./TerminalArea";
+
+export { STATUS_LABEL };
 
 // ------------------------------------------------------------------ shared bits
 
@@ -85,6 +82,7 @@ export function StatusIcon({ s, className }: { s: Status; className?: string }) 
   if (s === "needs_human" || s === "needs_split" || s === "draft") return <Hand className={c} />;
   if (s === "failed") return <X className={c} />;
   if (s === "cancelled") return <X className={c} />;
+  if (s === "skipped") return <SkipForward className={c} />;
   return <CircleDashed className={c} />;
 }
 
@@ -129,31 +127,15 @@ export function goalTitle(id: string) {
   return g ? shortName(g.text) : id;
 }
 
-export function GoalTag({ id }: { id: string }) {
-  const g = useForge((s) => s.goals[id]);
-  if (!g) return null;
-  return <span className="mr-1.5 rounded bg-ov/[0.07] px-1.5 py-px text-[10.5px] text-muted-foreground">{shortName(g.text)}</span>;
-}
-
 // ------------------------------------------------------------------ the pane
+
+export type Page = { kind: "board" } | { kind: "goal"; id: string } | { kind: "task"; id: string };
 
 export function AgentsView({ pane, focused, visible, multi, zoomed }: { pane: Pane; focused: boolean; visible: boolean; multi: boolean; zoomed: boolean }) {
   const focusPane = useApp((s) => s.focusPane);
   const loaded = useForge((s) => s.loaded);
-  const [replyTo, setReplyTo] = useState<string | null>(null);
-  const [mode, setModeState] = useState<Mode>(() => {
-    try {
-      return localStorage.getItem("rt.agents.mode") === "chat" ? "chat" : "board";
-    } catch {
-      return "board";
-    }
-  });
-  const setMode = (m: Mode) => {
-    setModeState(m);
-    try {
-      localStorage.setItem("rt.agents.mode", m);
-    } catch {}
-  };
+  const [page, setPage] = useState<Page>({ kind: "board" });
+  const [creating, setCreating] = useState(false);
   // over a background image, the same see-through mask as terminals
   const glass = useApp((s) => (s.settings.backdrop !== "none" ? s.settings.glassOpacity : null));
   useEffect(() => {
@@ -163,6 +145,11 @@ export function AgentsView({ pane, focused, visible, multi, zoomed }: { pane: Pa
   useEffect(() => {
     if (visible) useApp.getState().toggleView("agents", true);
   }, [visible]);
+  // a page whose goal / task was removed goes back to the board
+  const exists = useForge((s) => (page.kind === "goal" ? !!s.goals[page.id] : page.kind === "task" ? !!s.stories[page.id] : true));
+  useEffect(() => {
+    if (loaded && !exists) setPage({ kind: "board" });
+  }, [exists, loaded]);
   return (
     <div
       data-pane-id={pane.id}
@@ -172,66 +159,80 @@ export function AgentsView({ pane, focused, visible, multi, zoomed }: { pane: Pa
       onPointerDownCapture={() => focusPane(pane.id)}
     >
       {multi && <PaneHeader pane={pane} focused={focused} multi={multi} zoomed={zoomed} />}
-      <Toolbar mode={mode} setMode={setMode} />
-      {loaded ? (
-        <>
-          {mode === "board" ? <Kanban onReply={setReplyTo} /> : <Timeline onReply={setReplyTo} />}
-          {mode === "board" && <ReplyStrip onOpenChat={() => setMode("chat")} />}
-          <Composer visible={visible} focused={focused} replyTo={replyTo} setReplyTo={setReplyTo} />
-        </>
-      ) : (
+      <Toolbar onNew={() => setCreating(true)} page={page} go={setPage} />
+      {!loaded ? (
         <div className="flex flex-1 items-center justify-center text-muted-foreground">
           <Loader2 className="size-5 animate-spin" />
         </div>
+      ) : page.kind === "goal" ? (
+        <GoalPage key={page.id} id={page.id} go={setPage} />
+      ) : page.kind === "task" ? (
+        <TaskPage key={page.id} id={page.id} go={setPage} />
+      ) : (
+        <Board go={setPage} onNew={() => setCreating(true)} />
       )}
+      <NewGoalDialog
+        open={creating}
+        onClose={() => setCreating(false)}
+        onCreated={(id) => setPage({ kind: "goal", id })}
+      />
     </div>
   );
 }
 
-type Mode = "board" | "chat";
-
-/** In board view, the entry agent's latest answer (and reports) still has to reach you. */
-function ReplyStrip({ onOpenChat }: { onOpenChat: () => void }) {
-  const timeline = useForge((s) => s.timeline);
-  const thinking = useForge((s) => s.thinking);
-  const [closed, setClosed] = useState<string | null>(() => timeline.at(-1)?.id ?? null);
-  const last = timeline.at(-1);
-  const show = thinking || (last && last.from !== "user" && last.id !== closed);
+function NewGoalDialog({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: (id: string) => void }) {
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    if (!text.trim() || busy) return;
+    setBusy(true);
+    try {
+      const g = await newGoal(text);
+      setText("");
+      onClose();
+      if (g) onCreated(g.id);
+    } catch (e) {
+      toast({ kind: "error", title: tr("Couldn't start the task"), description: (e as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
-    <AnimatePresence>
-      {show && (
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: 8 }}
-          className="shrink-0 px-4 pb-2"
-        >
-          <div className="mx-auto flex max-w-[800px] items-start gap-2 rounded-xl border border-ov/[0.08] bg-popover/90 px-3 py-2 text-[12.5px] shadow-lg shadow-shadow/30">
-            <Bot className="mt-0.5 size-4 shrink-0 text-primary" />
-            <div className="max-h-48 min-w-0 flex-1 overflow-y-auto">
-              {thinking ? (
-                <span className="shimmer text-muted-foreground">{tr("Reading your message…")}</span>
-              ) : (
-                <>
-                  {last?.goal && <GoalTag id={last.goal} />}
-                  <Markdown text={last?.text ?? ""} />
-                </>
-              )}
-            </div>
-            <div className="flex shrink-0 items-center gap-0.5">
-              <IconButton tip={tr("Open in the conversation")} className="size-6" onClick={onOpenChat}>
-                <MessagesSquare />
-              </IconButton>
-              {!thinking && (
-                <IconButton tip={tr("Dismiss")} className="size-6" onClick={() => setClosed(last?.id ?? null)}>
-                  <X />
-                </IconButton>
-              )}
-            </div>
-          </div>
-        </motion.div>
-      )}
-    </AnimatePresence>
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-[min(620px,calc(100%-2rem))]">
+        <DialogHeader>
+          <DialogTitle>{tr("New task")}</DialogTitle>
+          <DialogDescription>
+            {tr("Describe what you want done. Mention a local folder path to work in it (git repositories get isolated branches); machines are reached through your saved SSH hosts.")}
+          </DialogDescription>
+        </DialogHeader>
+        <textarea
+          autoFocus
+          rows={7}
+          value={text}
+          spellCheck={false}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+              e.preventDefault();
+              void submit();
+            }
+          }}
+          placeholder={tr("e.g. Add a --json flag to the CLI in D:\\Projects\\tool, or: check why disk usage on web-1 keeps growing")}
+          className="w-full resize-y rounded-lg border border-input bg-inset px-3 py-2 text-[13px] leading-relaxed outline-none placeholder:text-muted-foreground/60 focus:border-primary/60"
+        />
+        <DialogFooter>
+          <span className="mr-auto self-center text-[11px] text-muted-foreground">Ctrl+Enter</span>
+          <Button variant="ghost" onClick={onClose}>
+            {tr("Cancel")}
+          </Button>
+          <Button disabled={!text.trim() || busy} onClick={() => void submit()}>
+            {busy && <Loader2 className="size-3.5 animate-spin" />}
+            {tr("Start")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -244,7 +245,8 @@ function useCostToday() {
 }
 
 function Slots() {
-  const cap = useForge((s) => s.config.limits.maxConcurrentRuns);
+  // each agent's own limit adds up to the pool's capacity
+  const cap = useForge((s) => s.config.peers.filter((p) => p.enabled !== false).reduce((n, p) => n + p.maxConcurrent, 0));
   const active = useForge((s) => s.activeRuns.length);
   return (
     <Tooltip content={tr("{0} of {1} agent slots in use", { 0: active, 1: cap })}>
@@ -258,7 +260,34 @@ function Slots() {
   );
 }
 
-function Toolbar({ mode, setMode }: { mode: Mode; setMode: (m: Mode) => void }) {
+/** Agents › goal › step — each level clickable. */
+function Breadcrumb({ page, go }: { page: Page; go: (p: Page) => void }) {
+  const story = useForge((s) => (page.kind === "task" ? s.stories[page.id] : undefined));
+  const goalId = page.kind === "goal" ? page.id : story?.goal;
+  const goal = useForge((s) => (goalId ? s.goals[goalId] : undefined));
+  const crumbs: { label: string; to?: Page }[] = [{ label: tr("Agents"), to: page.kind === "board" ? undefined : { kind: "board" } }];
+  if (goal) crumbs.push({ label: shortName(goal.text, 40), to: page.kind === "task" ? { kind: "goal", id: goal.id } : undefined });
+  if (story) crumbs.push({ label: story.title });
+  return (
+    <nav className="flex min-w-0 items-center gap-1 text-[13px]">
+      <Bot className="size-4 shrink-0 text-primary" />
+      {crumbs.map((c, i) => (
+        <span key={c.label + i} className="flex min-w-0 items-center gap-1">
+          {i > 0 && <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/60" />}
+          {c.to ? (
+            <button type="button" onClick={() => go(c.to!)} className="press min-w-0 truncate rounded px-1 text-muted-foreground hover:bg-ov/[0.06] hover:text-foreground">
+              {c.label}
+            </button>
+          ) : (
+            <span className={cn("min-w-0 truncate px-1", i === crumbs.length - 1 && "font-semibold")}>{c.label}</span>
+          )}
+        </span>
+      ))}
+    </nav>
+  );
+}
+
+function Toolbar({ onNew, page, go }: { onNew: () => void; page: Page; go: (p: Page) => void }) {
   const paused = useForge((s) => s.paused);
   const active = useForge((s) => s.activeRuns.length);
   const goals = useForge((s) => s.goals);
@@ -266,36 +295,14 @@ function Toolbar({ mode, setMode }: { mode: Mode; setMode: (m: Mode) => void }) 
   const cost = useCostToday();
   const open = Object.values(goals).filter((g) => !["done", "cancelled", "failed"].includes(g.status)).length;
   return (
-    <div className="flex h-10 shrink-0 items-center gap-2.5 border-b border-ov/[0.06] px-3">
-      <Bot className="size-4 text-primary" />
-      <span className="text-[13px] font-semibold">{tr("Agents")}</span>
+    <div className="flex h-11 shrink-0 items-center gap-2.5 border-b border-ov/[0.06] px-3">
+      <Breadcrumb page={page} go={go} />
       <Slots />
-      <span className="text-[11px] text-muted-foreground">
+      <span className="shrink-0 text-[11px] text-muted-foreground">
         {paused ? <span className="text-warning">{tr("Dispatching paused")}</span> : open ? tr("{0} goals in progress", { 0: open }) : null}
         {cost > 0 && <span className="ml-2 tabular-nums">{tr("Today ${0}", { 0: cost.toFixed(2) })}</span>}
       </span>
       <div className="flex-1" />
-      <div className="flex rounded-md bg-ov/[0.06] p-0.5 text-[11.5px]">
-        {(
-          [
-            ["board", tr("Board"), <LayoutDashboard key="b" />],
-            ["chat", tr("Conversation"), <MessagesSquare key="c" />],
-          ] as const
-        ).map(([m, label, icon]) => (
-          <button
-            key={m}
-            type="button"
-            onClick={() => setMode(m)}
-            className={cn(
-              "press flex h-6 items-center gap-1 rounded px-2 [&_svg]:size-3.5",
-              mode === m ? "bg-surface text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            {icon}
-            {label}
-          </button>
-        ))}
-      </div>
       {active > 0 && (
         <IconButton tip={tr("Emergency stop: pause and cancel every running agent")} danger onClick={() => void forge.emergencyStop()}>
           <OctagonX />
@@ -304,374 +311,17 @@ function Toolbar({ mode, setMode }: { mode: Mode; setMode: (m: Mode) => void }) 
       <IconButton tip={panel ? tr("Hide the agent pool") : tr("Show the agent pool")} active={panel} onClick={() => useApp.getState().toggleView("agents")}>
         <PanelRight />
       </IconButton>
+      <Button size="sm" onClick={onNew}>
+        <Plus className="size-3.5" /> {tr("New task")}
+      </Button>
     </div>
   );
 }
 
-// ------------------------------------------------------------------ timeline
-
-function Timeline({ onReply: setReplyTo }: { onReply: (goal: string | null) => void }) {
-  const timeline = useForge((s) => s.timeline);
-  const goals = useForge((s) => s.goals);
-  const thinking = useForge((s) => s.thinking);
-  const approvals = useForge((s) => s.approvals);
-  const list = useRef<HTMLDivElement>(null);
-  const pinned = useRef(true);
-
-  // a goal's card shows under the last message about it; goals never mentioned (none yet) at the end
-  const lastFor = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const t of timeline) if (t.goal) m.set(t.goal, t.id);
-    return m;
-  }, [timeline]);
-  const orphans = Object.values(goals).filter((g) => !lastFor.has(g.id));
-  const loose = Object.values(approvals).filter((a) => !goalOfSubject(a.subject));
-
-  useEffect(() => {
-    const el = list.current;
-    if (el && pinned.current) el.scrollTop = el.scrollHeight;
-  });
-
-  return (
-    <>
-      <div
-        ref={list}
-        onScroll={(e) => {
-          const el = e.currentTarget;
-          pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
-        }}
-        className="min-h-0 flex-1 overflow-y-auto"
-      >
-        <div className="mx-auto flex max-w-[800px] flex-col gap-3 px-4 py-4 text-[12.5px] leading-relaxed">
-          {timeline.length === 0 && !orphans.length && <Welcome />}
-          {orphans.map((g) => (
-            <GoalCard key={g.id} goal={g} onReply={setReplyTo} />
-          ))}
-          {timeline.map((t) => (
-            <div key={t.id} className="flex flex-col gap-2">
-              {t.from === "user" ? (
-                <div className="flex justify-end">
-                  <div className="max-w-[80%] rounded-lg rounded-br-sm bg-primary/14 px-3 py-1.5 break-words whitespace-pre-wrap">
-                    {t.goal && <GoalTag id={t.goal} />}
-                    {t.text}
-                  </div>
-                </div>
-              ) : t.from === "agent" ? (
-                <div className="flex gap-2">
-                  <Bot className="mt-0.5 size-4 shrink-0 text-primary" />
-                  <div className="min-w-0 flex-1 text-foreground/95">
-                    <Markdown text={t.text} />
-                  </div>
-                </div>
-              ) : (
-                <div className="pl-6 text-[11.5px] text-muted-foreground">{t.text}</div>
-              )}
-              {t.goal && lastFor.get(t.goal) === t.id && goals[t.goal] && <GoalCard goal={goals[t.goal]} onReply={setReplyTo} />}
-            </div>
-          ))}
-          {loose.map((a) => (
-            <ApprovalCard key={a.id} ap={a} />
-          ))}
-          {thinking && (
-            <div className="flex items-center gap-2 pl-0.5 text-[12px] text-muted-foreground">
-              <Bot className="size-4 text-primary" />
-              <span className="shimmer">{tr("Reading your message…")}</span>
-            </div>
-          )}
-        </div>
-      </div>
-    </>
-  );
-}
-
-function goalOfSubject(subject: string) {
-  const st = useForge.getState();
-  return st.goals[subject] ?? (st.stories[subject] ? st.goals[st.stories[subject].goal] : undefined);
-}
-
-export function Welcome() {
-  const probes = useForge((s) => s.probes);
-  const peers = useForge((s) => s.config.peers);
-  const ok = Object.values(probes).filter((p) => p.ok);
-  const probing = Object.values(probes).some((p) => p.probing);
-  return (
-    <div className="mx-auto mt-[8vh] flex max-w-[520px] flex-col items-center gap-3 text-center">
-      <div className="flex size-12 items-center justify-center rounded-2xl bg-primary/12 text-primary">
-        <Bot className="size-6" />
-      </div>
-      <div className="text-[15px] font-semibold">{tr("Agents")}</div>
-      <p className="text-[12.5px] text-muted-foreground">
-        {tr(
-          "Say what you want done. It's planned into tasks, handed to the best-suited agents in your pool, checked by an independent verifier, and code changes wait for your OK before they're merged.",
-        )}
-      </p>
-      <div className="flex flex-wrap justify-center gap-1.5 text-[11px]">
-        {probing && (
-          <span className="flex items-center gap-1 text-muted-foreground">
-            <Loader2 className="size-3 animate-spin" /> {tr("Looking for agents…")}
-          </span>
-        )}
-        {ok.map((p) => (
-          <span key={p.runtime} className="rounded-full bg-success/12 px-2 py-0.5 text-success">
-            {p.runtime}
-          </span>
-        ))}
-      </div>
-      {!probing && !peers.length && (
-        <Button size="sm" variant="secondary" onClick={() => openAgentsSettings()}>
-          <Settings2 className="size-3.5" /> {tr("Set up the agent pool")}
-        </Button>
-      )}
-    </div>
-  );
-}
-
-// ------------------------------------------------------------------ composer
-
-function Composer({
-  visible,
-  focused,
-  replyTo,
-  setReplyTo,
-}: {
-  visible: boolean;
-  focused: boolean;
-  replyTo: string | null;
-  setReplyTo: (g: string | null) => void;
-}) {
-  const [text, setText] = useState("");
-  const recent = useForge((s) => s.config.workspaces);
-  const [workspace, setWorkspace] = useState<string>(() => recent[0] ?? "");
-  const input = useRef<HTMLTextAreaElement>(null);
-  const thinking = useForge((s) => s.thinking);
-
-  useEffect(() => {
-    if (focused && visible) requestAnimationFrame(() => input.current?.focus());
-  }, [focused, visible]);
-  useEffect(() => {
-    if (replyTo) input.current?.focus();
-  }, [replyTo]);
-  useEffect(() => {
-    const el = input.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${Math.min(220, el.scrollHeight)}px`;
-  }, [text]);
-
-  const submit = () => {
-    const t = text.trim();
-    if (!t) return;
-    setText("");
-    setReplyTo(null);
-    void send(t, { workspace: workspace || undefined, goal: replyTo ?? undefined });
-  };
-
-  const browse = async () => {
-    const { open } = await import("@tauri-apps/plugin-dialog");
-    const dir = await open({ directory: true, defaultPath: workspace || undefined, title: tr("Choose the project folder") });
-    if (typeof dir === "string") setWorkspace(dir);
-  };
-
-  return (
-    <div className="shrink-0 px-4 pb-3">
-      <div className="mx-auto max-w-[800px] rounded-xl border border-ov/10 bg-inset transition-colors focus-within:border-primary/50">
-        <AnimatePresence>
-          {replyTo && (
-            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-              <div className="flex items-center gap-1.5 px-3 pt-2 text-[11.5px] text-primary">
-                <MessageSquareReply className="size-3.5" />
-                {tr("Replying to “{0}”", { 0: goalTitle(replyTo) })}
-                <button type="button" className="press ml-1 rounded p-0.5 text-muted-foreground hover:text-foreground" onClick={() => setReplyTo(null)}>
-                  <X className="size-3" />
-                </button>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-        <textarea
-          ref={input}
-          rows={1}
-          value={text}
-          spellCheck={false}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-              e.preventDefault();
-              submit();
-            } else if (e.key === "Escape" && replyTo) setReplyTo(null);
-          }}
-          placeholder={replyTo ? tr("Answer or add details…") : tr("What should the agents do? (Shift+Enter for a new line)")}
-          className="block w-full resize-none bg-transparent px-3 pt-2.5 pb-1 text-[13px] leading-snug outline-none placeholder:text-muted-foreground/60"
-        />
-        <div className="flex items-center gap-1 px-2 pb-2">
-          <WorkspacePicker value={workspace} recent={recent} onChange={setWorkspace} onBrowse={() => void browse()} />
-          <div className="flex-1" />
-          <Tooltip content={tr("Send (Enter)")} side="top">
-            <button
-              type="button"
-              disabled={!text.trim()}
-              onClick={submit}
-              className="press flex size-7 items-center justify-center rounded-md bg-primary text-primary-foreground disabled:bg-ov/[0.08] disabled:text-muted-foreground [&_svg]:size-4"
-            >
-              {thinking ? <Loader2 className="animate-spin" /> : <ArrowUp />}
-            </button>
-          </Tooltip>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function WorkspacePicker({
-  value,
-  recent,
-  onChange,
-  onBrowse,
-}: {
-  value: string;
-  recent: string[];
-  onChange: (v: string) => void;
-  onBrowse: () => void;
-}) {
-  const name = value ? value.replace(/[\\/]+$/, "").split(/[\\/]/).pop() : "";
-  const options = [
-    { value: "", label: tr("No project folder"), hint: tr("research, machines") },
-    ...recent.map((r) => ({ value: r, label: r.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? r, hint: r })),
-    { value: "\u0000browse", label: tr("Choose a folder…") },
-  ];
-  return (
-    <Select<string>
-      size="sm"
-      className="h-7 max-w-64 min-w-0 gap-1.5 border-transparent bg-transparent px-2 text-[11.5px] text-muted-foreground hover:bg-ov/[0.06]"
-      value={value}
-      options={options.map((o) => ({
-        ...o,
-        label: (
-          <span className="flex items-center gap-1.5">
-            {o.value === "\u0000browse" ? <FolderOpen className="size-3.5" /> : <Folder className="size-3.5" />}
-            {o.label}
-          </span>
-        ),
-      }))}
-      onChange={(v) => (v === "\u0000browse" ? onBrowse() : onChange(v))}
-      placeholder={name}
-    />
-  );
-}
-
-// ------------------------------------------------------------------ goals
-
-function GoalCard({ goal, onReply }: { goal: Goal; onReply: (id: string) => void }) {
-  const storiesAll = useForge((s) => s.stories);
-  const features = useForge((s) => s.features);
-  const approvals = useForge((s) => s.approvals);
-  const runs = useForge((s) => s.runs);
-  const stories = useMemo(
-    () => Object.values(storiesAll).filter((s) => s.goal === goal.id).sort((a, b) => Number(a.id.slice(3)) - Number(b.id.slice(3))),
-    [storiesAll, goal.id],
-  );
-  const feats = Object.values(features).filter((f) => f.goal === goal.id);
-  const counted = stories.filter((s) => s.status !== "cancelled");
-  const done = counted.filter((s) => s.status === "done").length;
-  const aps = Object.values(approvals).filter((a) => a.subject === goal.id || stories.some((s) => s.id === a.subject));
-  const planRun = Object.values(runs)
-    .filter((r) => r.subject === goal.id && r.purpose === "plan")
-    .sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0];
-  const finished = ["done", "cancelled", "failed"].includes(goal.status);
-  const [open, setOpen] = useState(!finished);
-  useEffect(() => {
-    if (!finished) setOpen(true);
-  }, [finished]);
-
-  return (
-    <motion.div layout="position" className={cn("overflow-hidden rounded-xl border bg-ov/[0.025]", goal.status === "needs_human" ? "border-warning/35" : "border-ov/[0.08]")}>
-      <div className="flex items-start gap-2 px-3 pt-2.5 pb-2">
-        <button type="button" onClick={() => setOpen(!open)} className="press mt-0.5 text-muted-foreground hover:text-foreground">
-          <ChevronRight className={cn("size-3.5 transition-transform", open && "rotate-90")} />
-        </button>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className={cn("text-[11px] font-medium", tone(goal.status))}>{tr(GOAL_LABEL[goal.status])}</span>
-            {goal.workspace && (
-              <Tooltip content={goal.workspace}>
-                <span className="flex min-w-0 items-center gap-1 truncate text-[11px] text-muted-foreground">
-                  <Folder className="size-3" />
-                  {goal.workspace.split(/[\\/]/).pop()}
-                </span>
-              </Tooltip>
-            )}
-            {counted.length > 0 && <span className="ml-auto text-[11px] text-muted-foreground tabular-nums">{done}/{counted.length}</span>}
-          </div>
-          <div className={cn("mt-0.5 text-[12.5px] break-words text-foreground/90", !open && "truncate")}>{goal.text.split("\n")[0]}</div>
-          {counted.length > 0 && (
-            <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-ov/[0.08]">
-              <motion.div
-                className={cn("h-full rounded-full", goal.status === "done" ? "bg-success" : "bg-primary")}
-                initial={false}
-                animate={{ width: `${(done / counted.length) * 100}%` }}
-                transition={{ type: "spring", stiffness: 160, damping: 26 }}
-              />
-            </div>
-          )}
-        </div>
-        <GoalActions goal={goal} onReply={onReply} />
-      </div>
-
-      <AnimatePresence initial={false}>
-        {open && (
-          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.18 }}>
-            <div className="flex flex-col gap-1.5 px-3 pb-3">
-              {goal.status === "planning" && (
-                <div className="ml-5.5 flex flex-col gap-1">
-                  <div className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
-                    <Loader2 className="size-3.5 animate-spin text-primary" />
-                    <span className="shimmer">{planRun?.status === "running" || planRun?.status === "starting" ? tr("{0} is planning…", { 0: planRun.peer }) : tr("Waiting for a planner…")}</span>
-                  </div>
-                  {planRun && <RunLine run={planRun} />}
-                </div>
-              )}
-              {goal.note && (
-                <div className={cn("ml-5.5 rounded-md px-2.5 py-1.5 text-[11.5px] whitespace-pre-wrap", goal.status === "needs_human" ? "bg-warning/[0.08] text-foreground/90" : "bg-ov/[0.04] text-muted-foreground")}>
-                  {goal.note}
-                </div>
-              )}
-              {feats.map((f) => (
-                <div key={f.id} className="ml-5.5 flex flex-col gap-0.5">
-                  {feats.length > 1 && (
-                    <div className="pt-1 text-[11px] font-medium text-muted-foreground">
-                      {f.title}
-                    </div>
-                  )}
-                  {stories
-                    .filter((s) => s.feature === f.id)
-                    .map((s) => (
-                      <StoryRow key={s.id} story={s} />
-                    ))}
-                </div>
-              ))}
-              {aps.map((a) => (
-                <div key={a.id} className="ml-5.5">
-                  <ApprovalCard ap={a} />
-                </div>
-              ))}
-              {goal.status === "done" && !goal.report && <GoalResult goal={goal} stories={stories} />}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </motion.div>
-  );
-}
-
-export function GoalActions({ goal, onReply }: { goal: Goal; onReply: (id: string) => void }) {
+export function GoalActions({ goal, onRemoved }: { goal: Goal; onRemoved?: () => void }) {
   const running = !["done", "cancelled", "failed"].includes(goal.status);
   return (
     <div className="flex shrink-0 items-center gap-0.5">
-      {goal.status !== "done" && (
-        <IconButton tip={tr("Reply / add details")} className="size-6" onClick={() => onReply(goal.id)}>
-          <MessageSquareReply />
-        </IconButton>
-      )}
       {running ? (
         <IconButton
           tip={tr("Cancel this goal")}
@@ -695,7 +345,11 @@ export function GoalActions({ goal, onReply }: { goal: Goal; onReply: (id: strin
               title: tr("Remove {0}?", { 0: goal.id }),
               message: tr("Its tasks and logs are removed; unmerged forge branches of it are deleted."),
               confirmLabel: tr("Remove"),
-            }).then((ok) => ok && forge.deleteGoal(goal.id))
+            }).then((ok) => {
+              if (!ok) return;
+              forge.deleteGoal(goal.id);
+              onRemoved?.();
+            })
           }
         >
           <Trash2 />
@@ -705,205 +359,7 @@ export function GoalActions({ goal, onReply }: { goal: Goal; onReply: (id: strin
   );
 }
 
-export function GoalResult({ goal, stories, className }: { goal: Goal; stories: Story[]; className?: string }) {
-  const parts = stories.filter((s) => s.status === "done" && s.handoff);
-  if (!parts.length && !goal.report) return null;
-  const text = goal.report ?? parts
-    .map((s) => {
-      const h = s.handoff!;
-      const findings = h.findings?.length ? `\n${h.findings.map((f) => `- ${f.claim}${f.source ? ` (\`${f.source}\`)` : ""}`).join("\n")}` : "";
-      const issues = h.openIssues.length ? `\n${h.openIssues.map((x) => `- ⚠ ${x}`).join("\n")}` : "";
-      return `**${s.title}** — ${h.summary}${findings}${issues}`;
-    })
-    .join("\n\n");
-  return (
-    <div className={cn("rounded-lg border border-success/20 bg-success/[0.05] px-3 py-2 text-[12.5px]", className ?? "ml-5.5")}>
-      <div className="mb-1 flex items-center gap-1.5 text-[11px] font-medium text-success">
-        <Check className="size-3.5" /> {tr("Result")}
-      </div>
-      <Markdown text={text} />
-      {goal.note && !goal.report && <div className="mt-1 text-[11px] text-muted-foreground">{goal.note}</div>}
-    </div>
-  );
-}
-
-// ------------------------------------------------------------------ stories
-
-function StoryRow({ story: s }: { story: Story }) {
-  const runs = useForge((st) => st.runs);
-  const active = useForge((st) => st.activeRuns);
-  const storyRuns = Object.values(runs)
-    .filter((r) => r.subject === s.id)
-    .sort((a, b) => a.startedAt.localeCompare(b.startedAt));
-  const live = storyRuns.filter((r) => active.includes(r.id));
-  const last = live.at(-1) ?? storyRuns.at(-1);
-  const [open, setOpen] = useState(false);
-  const stuck = ["needs_human", "needs_split", "failed", "cancelled"].includes(s.status);
-  const escalated = s.attempts.length > 0 && s.attempts.at(-1)!.tier !== s.minTier;
-  return (
-    <div className={cn("rounded-md", open && "bg-ov/[0.03]")}>
-      <div
-        role="button"
-        tabIndex={0}
-        onClick={() => setOpen(!open)}
-        onKeyDown={(e) => e.key === "Enter" && setOpen(!open)}
-        className="group flex min-w-0 cursor-default items-center gap-2 rounded-md px-1.5 py-1 hover:bg-ov/[0.04]"
-      >
-        <StatusIcon s={s.status} />
-        <span className="min-w-0 flex-1 truncate text-[12px]">{s.title}</span>
-        <RoleChip role={s.role} tier={escalated ? s.attempts.at(-1)!.tier : s.minTier} up={escalated} />
-        {s.risk === "destructive" && <TriangleAlert className="size-3.5 shrink-0 text-warning" />}
-        {last && (live.length > 0 || s.status === "running" || s.status === "verifying") && (
-          <span className="flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground">
-            {last.purpose === "verify" && <ShieldCheck className="size-3" />}
-            {last.peer} · <Elapsed from={last.startedAt} to={last.endedAt} />
-          </span>
-        )}
-        {!live.length && s.status !== "running" && (
-          <span className={cn("shrink-0 text-[11px]", tone(s.status))}>{tr(STATUS_LABEL[s.status])}</span>
-        )}
-        {s.attempts.length > 1 && <span className="shrink-0 text-[10.5px] text-muted-foreground">×{s.attempts.length}</span>}
-        {stuck && (
-          <IconButton
-            tip={tr("Try again")}
-            className="size-5 opacity-0 group-hover:opacity-100"
-            onClick={(e) => {
-              e.stopPropagation();
-              forge.retryStory(s.id);
-            }}
-          >
-            <RotateCcw />
-          </IconButton>
-        )}
-      </div>
-      {!open && live.length > 0 && last?.activity && (
-        <div className="truncate pb-1 pl-7 font-mono text-[10.5px] text-muted-foreground/80">{last.activity}</div>
-      )}
-      {!open && s.blockedReason && !live.length && (
-        <div className={cn("line-clamp-2 pb-1 pl-7 text-[11px]", stuck ? "text-warning" : "text-muted-foreground")}>{s.blockedReason}</div>
-      )}
-      <AnimatePresence initial={false}>
-        {open && (
-          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.16 }} className="overflow-hidden">
-            <StoryDetail story={s} runs={storyRuns} />
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
-
-export function StoryDetail({ story: s, runs }: { story: Story; runs: AgentRun[] }) {
-  const live = runs.find((r) => ["starting", "running", "waiting_permission"].includes(r.status));
-  const [tab, setTab] = useState<string>(() => live?.id ?? "info");
-  useEffect(() => {
-    if (tab !== "info" && !runs.some((r) => r.id === tab)) setTab(runs.at(-1)?.id ?? "info");
-  }, [runs, tab]);
-  const h = s.handoff;
-  const lastVerify = [...s.attempts].reverse().find((a) => a.verify)?.verify;
-  return (
-    <div className="flex flex-col gap-2 px-2 pt-0.5 pb-2 pl-7">
-      <div className="flex flex-wrap items-center gap-1">
-        <TabBtn on={tab === "info"} onClick={() => setTab("info")}>
-          {tr("Overview")}
-        </TabBtn>
-        {runs.map((r) => (
-          <TabBtn key={r.id} on={tab === r.id} onClick={() => setTab(r.id)}>
-            {r.purpose === "verify" ? <ShieldCheck className="size-3" /> : <Bot className="size-3" />}
-            {r.purpose === "verify" ? tr("Check · {0}", { 0: r.peer }) : tr("Work · {0}", { 0: r.peer })}
-            <span
-              className={cn(
-                "size-1.5 rounded-full",
-                r.status === "done" ? "bg-success" : r.status === "failed" ? "bg-destructive" : r.status === "cancelled" ? "bg-ov/30" : "animate-pulse bg-primary",
-              )}
-            />
-          </TabBtn>
-        ))}
-      </div>
-      {tab === "info" ? (
-        <div className="flex flex-col gap-2.5 text-[12px]">
-          {h && (
-            <div className="rounded-lg border border-ov/[0.07] bg-ov/[0.03] px-3 py-2">
-              <div className="mb-0.5 text-[11px] font-medium text-muted-foreground">{tr("Outcome")}</div>
-              <Markdown text={h.summary} />
-              {(h.findings?.length ?? 0) > 0 && (
-                <ul className="mt-1 list-disc space-y-0.5 pl-4.5">
-                  {h.findings!.map((f, i) => (
-                    // biome-ignore lint/suspicious/noArrayIndexKey: static
-                    <li key={i}>
-                      {f.claim}
-                      {f.source && <span className="ml-1 font-mono text-[10.5px] text-muted-foreground">{f.source}</span>}
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {h.changes.length > 0 && (
-                <div className="mt-1.5 flex flex-col gap-0.5 text-[11.5px] text-muted-foreground">
-                  {h.changes.map((c, i) => (
-                    // biome-ignore lint/suspicious/noArrayIndexKey: static
-                    <div key={i}>
-                      <code className="font-mono text-foreground/85">{c.resource}</code> {c.what}
-                    </div>
-                  ))}
-                </div>
-              )}
-              {h.openIssues.length > 0 && (
-                <div className="mt-1.5 flex flex-col gap-0.5 text-[11.5px] text-warning">
-                  {h.openIssues.map((x, i) => (
-                    // biome-ignore lint/suspicious/noArrayIndexKey: static
-                    <div key={i}>⚠ {x}</div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-          {lastVerify && (
-            <div className={cn("flex gap-1.5 text-[11.5px]", lastVerify.pass ? "text-success" : "text-destructive")}>
-              {lastVerify.pass ? <ShieldCheck className="mt-0.5 size-3.5 shrink-0" /> : <X className="mt-0.5 size-3.5 shrink-0" />}
-              <span className="text-foreground/85">{lastVerify.reason}</span>
-            </div>
-          )}
-          <div>
-            <div className="mb-0.5 text-[11px] font-medium text-muted-foreground">{tr("Task")}</div>
-            <div className="whitespace-pre-wrap text-foreground/85">{s.instructions}</div>
-          </div>
-          {s.acceptance.length > 0 && (
-            <div>
-              <div className="mb-0.5 text-[11px] font-medium text-muted-foreground">{tr("Acceptance")}</div>
-              {s.acceptance.map((a, i) => (
-                // biome-ignore lint/suspicious/noArrayIndexKey: static
-                <div key={i} className="flex gap-1.5">
-                  <span className="shrink-0 text-muted-foreground">{a.kind === "command" ? "$" : a.kind === "file_exists" ? "▢" : "◇"}</span>
-                  <span className={cn("break-all", a.kind !== "llm_judge" && "font-mono text-[11px]")}>{a.spec}</span>
-                </div>
-              ))}
-            </div>
-          )}
-          {s.attempts.length > 1 && (
-            <div className="flex flex-col gap-0.5 text-[11px] text-muted-foreground">
-              {s.attempts.map((a, i) =>
-                a.verify || a.error ? (
-                  // biome-ignore lint/suspicious/noArrayIndexKey: attempts
-                  <div key={i}>
-                    {tr("Attempt {0}", { 0: i + 1 })} · {a.peer} · {tierLabel(a.tier)} ·{" "}
-                    <span className={a.verify?.pass ? "text-success" : "text-destructive"}>
-                      {a.verify ? (a.verify.pass ? tr("accepted") : tr("rejected")) : tr("error")}
-                    </span>{" "}
-                    — {(a.verify?.reason ?? a.error ?? "").slice(0, 240)}
-                  </div>
-                ) : null,
-              )}
-            </div>
-          )}
-        </div>
-      ) : (
-        <RunLog runId={tab} />
-      )}
-    </div>
-  );
-}
-
-function TabBtn({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
+export function TabBtn({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
     <button
       type="button"
@@ -915,43 +371,14 @@ function TabBtn({ on, onClick, children }: { on: boolean; onClick: () => void; c
   );
 }
 
-function RunLine({ run }: { run: AgentRun }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div>
-      <button type="button" onClick={() => setOpen(!open)} className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground">
-        <ChevronRight className={cn("size-3 transition-transform", open && "rotate-90")} />
-        {run.activity ? <span className="max-w-[60ch] truncate font-mono">{run.activity}</span> : tr("Show output")}
-      </button>
-      {open && (
-        <div className="mt-1">
-          <RunLog runId={run.id} />
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ------------------------------------------------------------------ run output
 
-/** Drop the machine-readable parts of a reply (JSON handoffs, plans, verdicts). */
-export function proseOnly(text: string) {
-  let t = text.replace(/```[a-zA-Z]*[ \t]*\n([\s\S]*?)(?:```|$)/g, (m, body: string) => (/^\s*[[{]/.test(body) ? "" : m));
-  // a bare JSON object at the end
-  const i = t.search(/\n\s*\{[\s\S]*\}\s*$/);
-  if (i >= 0) {
-    try {
-      JSON.parse(t.slice(i));
-      t = t.slice(0, i);
-    } catch {}
-  }
-  return t.replace(/\n{3,}/g, "\n\n").trim();
-}
 
 type Piece =
   | { k: "text"; text: string }
   | { k: "tools"; items: Extract<AgentEvent, { t: "tool" }>[] }
   | { k: "note"; text: string; tone: "warn" | "error" }
+  | { k: "said"; from: "user" | "supervisor"; text: string }
   | { k: "plan"; items: { content: string; status: string }[] };
 
 function readable(events: { event: AgentEvent }[]): Piece[] {
@@ -971,6 +398,7 @@ function readable(events: { event: AgentEvent }[]): Piece[] {
     } else if (e.t === "permission" && e.decision !== "allow") {
       out.push({ k: "note", tone: e.decision === "deny" ? "error" : "warn", text: `${e.decision === "deny" ? tr("Not allowed") : tr("Asked you")}: ${e.title}` });
     } else if (e.t === "error") out.push({ k: "note", tone: "error", text: e.message });
+    else if (e.t === "note") out.push({ k: "said", from: e.from, text: e.text });
   }
   return out
     .map((p) => (p.k === "text" ? { ...p, text: proseOnly(p.text) } : p))
@@ -1029,7 +457,7 @@ export function RunLog({ runId }: { runId: string }) {
             {pieces.map((p, i) =>
               p.k === "text" ? (
                 // biome-ignore lint/suspicious/noArrayIndexKey: derived list
-                <Markdown key={i} text={p.text} />
+                <RichMarkdown key={i} text={p.text} compact />
               ) : p.k === "tools" ? (
                 // biome-ignore lint/suspicious/noArrayIndexKey: derived list
                 <ToolGroup key={i} items={p.items} />
@@ -1042,6 +470,12 @@ export function RunLog({ runId }: { runId: string }) {
                       {it.status === "completed" ? "☑" : it.status === "in_progress" ? "◐" : "☐"} {it.content}
                     </div>
                   ))}
+                </div>
+              ) : p.k === "said" ? (
+                // biome-ignore lint/suspicious/noArrayIndexKey: derived list
+                <div key={i} className={cn("rounded-md border-l-2 px-2.5 py-1.5 text-[12px]", p.from === "user" ? "border-primary bg-primary/[0.06]" : "border-[#c084fc] bg-[#c084fc]/[0.07]")}>
+                  <div className="text-[10.5px] font-medium text-muted-foreground">{p.from === "user" ? tr("You said") : tr("Supervisor stepped in")}</div>
+                  {p.text}
                 </div>
               ) : (
                 // biome-ignore lint/suspicious/noArrayIndexKey: derived list
@@ -1148,6 +582,8 @@ function EventLine({ e }: { e: AgentEvent }) {
       return <div className="whitespace-pre-wrap text-muted-foreground/60">{e.text.trim()}</div>;
     case "error":
       return <div className="whitespace-pre-wrap text-destructive">{e.message}</div>;
+    case "note":
+      return <div className="whitespace-pre-wrap text-primary">» {e.from === "user" ? tr("You said") : tr("Supervisor stepped in")}: {e.text}</div>;
     default:
       return null;
   }
@@ -1283,9 +719,16 @@ function PoolPanel() {
             />
           </div>
           <div className="flex items-center gap-2">
-            <span className="w-16 shrink-0 text-[11.5px] text-muted-foreground">{tr("At once")}</span>
-            <NumberInput value={config.limits.maxConcurrentRuns} min={1} max={16} className="h-7 w-16" onChange={(v) => set((c) => (c.limits.maxConcurrentRuns = v))} />
-            <Slots />
+            <Tooltip content={tr("Every few minutes, check what each working agent is doing; if it clearly drifted from its step, interrupt and correct it.")}>
+              <span className="flex-1 text-[11.5px] text-muted-foreground">{tr("Keep agents on track")}</span>
+            </Tooltip>
+            <Switch checked={config.supervise !== false} onChange={(v) => set((c) => (c.supervise = v))} />
+          </div>
+          <div className="flex items-center gap-2">
+            <Tooltip content={tr("When a task finishes, keep what it taught about your machines and projects in the knowledge base (updating notes rather than piling them up), so later tasks start from it.")}>
+              <span className="flex-1 text-[11.5px] text-muted-foreground">{tr("Learn from finished tasks")}</span>
+            </Tooltip>
+            <Switch checked={config.learn !== false} onChange={(v) => set((c) => (c.learn = v))} />
           </div>
           <div className="flex items-center gap-2">
             <span className="w-16 shrink-0 text-[11.5px] text-muted-foreground">{tr("Daily cap")}</span>
@@ -1367,7 +810,9 @@ function PeerLine({ index, live, open, onToggle }: { index: number; live: AgentR
           <div className="flex items-center gap-1.5">
             <span className="truncate font-medium">{p.id}</span>
             <span className="text-[10.5px] text-muted-foreground">{tierLabel(p.tier)}</span>
-            {load > 0 && <span className="text-[10.5px] text-primary tabular-nums">{load}/{p.maxConcurrent}</span>}
+            <span className={cn("text-[10.5px] tabular-nums", load ? "text-primary" : "text-muted-foreground")}>
+              {load ? tr("{0}/{1} running", { 0: load, 1: p.maxConcurrent }) : tr("up to {0} at once", { 0: p.maxConcurrent })}
+            </span>
           </div>
           <div className="truncate text-[10.5px] text-muted-foreground">
             {down ? tr("runtime unavailable") : `${rt ? tr(runtimeLabel(rt.kind)) : p.runtime}${p.model ? ` · ${p.model}` : ""}${p.effort ? ` · ${p.effort}` : ""}`}

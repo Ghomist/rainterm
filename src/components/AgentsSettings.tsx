@@ -8,7 +8,7 @@ import { ComboInput, NumberInput, Select, Switch } from "@/components/ui/control
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { IconButton } from "@/components/ui/panel";
 import { Tooltip } from "@/components/ui/tooltip";
-import { effectiveRoles, PRESET_ROLES, RUNTIME_KINDS, runtimeLabel, tierLabel } from "@/lib/forge/config";
+import { acpCommand, effectiveRoles, PRESET_ROLES, RUNTIME_KINDS, runtimeLabel, tierLabel } from "@/lib/forge/config";
 import { forge } from "@/lib/forge/engine";
 import { OUTPUT_LANGUAGES } from "@/lib/forge/llm";
 import { useForge } from "@/lib/forge/store";
@@ -245,12 +245,13 @@ function RuntimeRow({ rt, index }: { rt: RuntimeConfig; index: number }) {
       c.runtimes[index] = { ...c.runtimes[index], ...patch };
       return c;
     });
-  const [cmd, setCmd] = useState((rt.command ?? []).join(" "));
+  // the real launch command is shown (and editable), not hidden behind a placeholder
+  const defaultCmd = (acpCommand({ ...rt, command: undefined }) ?? []).join(" ");
+  const [cmd, setCmd] = useState((rt.command?.length ? rt.command : (acpCommand(rt) ?? [])).join(" "));
   const builtin = rt.kind === "rainterm";
   return (
-    <div className={cn("rounded-lg border border-ov/[0.08] p-2.5", rt.enabled === false && "opacity-60")}>
+    <div className={cn("rounded-lg border border-ov/[0.08] p-2.5", probe && !probe.ok && !probe.probing && "opacity-70")}>
       <div className="flex flex-wrap items-center gap-2">
-        <Switch checked={rt.enabled !== false} onChange={(v) => set({ enabled: v })} />
         <span className="w-28 truncate font-medium">{rt.id}</span>
         <span className="text-[11.5px] text-muted-foreground">{tr(runtimeLabel(rt.kind))}</span>
         <div className="flex-1" />
@@ -291,9 +292,19 @@ function RuntimeRow({ rt, index }: { rt: RuntimeConfig; index: number }) {
           <input
             className={cn(field, "min-w-64 flex-1 font-mono text-[11.5px]")}
             value={cmd}
-            placeholder={rt.kind === "custom" ? tr("ACP command, e.g. my-agent --acp") : tr("default launch command")}
+            placeholder={tr("ACP command, e.g. my-agent --acp")}
             onChange={(e) => setCmd(e.target.value)}
-            onBlur={() => set({ command: cmd.trim() ? splitArgs(cmd) : undefined })}
+            onBlur={() => {
+              const v = cmd.trim().replace(/\s+/g, " ");
+              // back to the built-in default when it's that (or emptied)
+              if (!v || v === defaultCmd) {
+                setCmd(defaultCmd);
+                if (rt.command) set({ command: undefined });
+              } else if (v !== (rt.command ?? []).join(" ")) {
+                set({ command: splitArgs(v) });
+                void forge.probe(rt.id);
+              }
+            }}
           />
           <Select<string>
             size="sm"
@@ -432,9 +443,6 @@ function LimitsTab() {
           options={OUTPUT_LANGUAGES.map((l) => ({ value: l.value, label: l.value === "system" ? tr(l.label) : l.label }))}
           onChange={(v) => update((c) => ({ ...c, outputLanguage: v }))}
         />
-      </Row>
-      <Row label={tr("Agents at once")} hint={tr("Across the whole pool.")}>
-        <NumberInput value={config.limits.maxConcurrentRuns} min={1} max={16} onChange={(v) => update((c) => ({ ...c, limits: { ...c.limits, maxConcurrentRuns: v } }))} className="h-7 w-20" />
       </Row>
       <Row label={tr("Daily spend limit (USD)")} hint={tr("Dispatching pauses when agents that report cost reach it; 0 = no limit.")}>
         <NumberInput value={config.limits.dailyCostUsd} min={0} max={10000} onChange={(v) => update((c) => ({ ...c, limits: { ...c.limits, dailyCostUsd: v } }))} className="h-7 w-20" />

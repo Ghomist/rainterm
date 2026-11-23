@@ -1,6 +1,8 @@
 import { Command } from "cmdk";
 import {
   Activity,
+  ArrowUpCircle,
+  BookOpen,
   Bot,
   ArrowLeftRight,
   Cable,
@@ -40,6 +42,8 @@ import { useSnippets } from "@/lib/snippets";
 import { sendSnippet } from "./SnippetVars";
 import { isTermPane, useApp } from "@/store/app";
 import { tr } from "@/lib/i18n";
+import { newNote } from "@/lib/kb";
+import { checkForUpdate } from "@/lib/updater";
 
 export function CommandPalette() {
   const open = useApp((s) => s.paletteOpen);
@@ -240,6 +244,15 @@ export function CommandPalette() {
                 </Item>
                 <Item value="quick commands snippets" onSelect={() => run(() => st.toggleView("snippets"))}>
                   <Zap /> {tr("Toggle quick commands")}{" "}<Keys id="snippets" />
+                </Item>
+                <Item value="knowledge base notes kb 知识库" onSelect={() => run(() => st.toggleView("knowledge"))}>
+                  <BookOpen /> {tr("Toggle knowledge base")}
+                </Item>
+                <Item value="new knowledge note" onSelect={() => run(() => newNote())}>
+                  <BookOpen /> {tr("New knowledge note…")}
+                </Item>
+                <Item value="check for updates upgrade version" onSelect={() => run(() => void checkForUpdate(false))}>
+                  <ArrowUpCircle /> {tr("Check for updates")}
                 </Item>
                 <Item value="toggle files sftp" onSelect={() => run(() => st.toggleView("files"))}>
                   <FolderTree /> {tr("Toggle file panel")}{" "}<Keys id="files" />

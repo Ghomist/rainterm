@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "rainterm",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "identifier": "com.rainterm.app",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -57,6 +57,18 @@
           "English",
           "SimpChinese"
         ]
+      }
+    },
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IENGNTQ4MEMzRTBFQzg4OEQKUldTTmlPemd3NEJVejJlRWRqT2YyRmVIbHhuczQ1Zlp1S2dBRVVqUUtxVGZFdzVGTThjb1pJTG0K",
+      "endpoints": [
+        "https://github.com/Ghomist/rainterm/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
       }
     }
   }

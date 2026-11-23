@@ -3,6 +3,9 @@ import { MotionConfig } from "motion/react";
 import { useEffect } from "react";
 import { CommandPalette } from "@/components/CommandPalette";
 import { Dialogs } from "@/components/dialogs";
+import { KnowledgeEditor } from "@/components/KnowledgePanel";
+import { UpdateDialog } from "@/components/Updater";
+import { startUpdateChecks } from "@/lib/updater";
 import { Dock } from "@/components/Dock";
 import { LockScreen } from "@/components/LockScreen";
 import { Overlays } from "@/components/Overlays";
@@ -150,6 +153,8 @@ export default function App() {
         <Pollers />
         <CommandPalette />
         <Dialogs />
+        <KnowledgeEditor />
+        <UpdateDialog />
         <SettingsDialog />
         <Overlays />
         <SnippetVarsDialog />
@@ -264,6 +269,10 @@ function useIdleLock() {
  *  watches (active tab, panel open, connections) doesn't re-render the whole app. */
 function Pollers() {
   useMcpServer();
+  const ready = useApp((s) => s.ready);
+  useEffect(() => {
+    if (ready) startUpdateChecks();
+  }, [ready]);
   const sshIds = useApp((s) =>
     Object.values(s.panes)
       .filter((p) => p.kind === "ssh" && p.status === "connected" && p.session?.sessionId)
