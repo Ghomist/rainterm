@@ -38,6 +38,10 @@ export interface Goal {
   report?: string;
   /** Knowledge-base notes kept (added or updated) from this goal's results. */
   learned?: { id: string; title: string }[];
+  /** 1 = urgent: its work goes ahead of everything queued (0 / unset = normal). */
+  priority?: number;
+  /** Why nothing is running for it right now (queued…), shown quietly; not a problem. */
+  waiting?: string;
 }
 
 export interface BriefEntry {

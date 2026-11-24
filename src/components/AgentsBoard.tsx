@@ -23,6 +23,7 @@ import {
   Target,
   TriangleAlert,
   X,
+  Zap,
   BookOpen,
 } from "lucide-react";
 import { motion } from "motion/react";
@@ -181,6 +182,12 @@ function GoalRow({ goal: g, go }: { goal: Goal; go: Go }) {
           <div className="line-clamp-2 text-[13.5px] font-medium leading-snug">{shortName(g.text, 160)}</div>
           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
             <span className={tone(g.status)}>{tr(GOAL_LABEL[g.status])}</span>
+            {!!g.priority && !finished && (
+              <span className="flex items-center gap-0.5 text-warning">
+                <Zap className="size-3" />
+                {tr("Urgent")}
+              </span>
+            )}
             {counted.length > 0 && (
               <span className="tabular-nums">{tr("{0} of {1} steps done", { 0: done, 1: counted.length })}</span>
             )}
@@ -278,7 +285,7 @@ function PlanningLine({ goal: g }: { goal: Goal }) {
   return (
     <div className="flex items-center gap-2 rounded-lg bg-ov/[0.03] px-3 py-2 text-[12px] text-muted-foreground">
       <Loader2 className="size-3.5 shrink-0 animate-spin text-primary" />
-      <span className="shimmer shrink-0">{live ? tr("{0} is planning the steps…", { 0: run.peer }) : tr("Waiting for a planner…")}</span>
+      <span className="shimmer shrink-0">{live ? tr("{0} is planning the steps…", { 0: run.peer }) : (g.waiting ?? tr("Queued — waiting for a free agent"))}</span>
       {live && run.activity && <span className="min-w-0 truncate font-mono text-[11px] opacity-70">{run.activity}</span>}
     </div>
   );

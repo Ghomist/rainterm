@@ -51,8 +51,11 @@ export function decide(args: {
       if (c.fs === "none" || c.fs === "read") return { decision: "deny", reason: `role is read-only (${kind} not allowed)` };
       const outside = locs.filter((p) => !roots.some((r) => inside(r, p)));
       if (outside.length === 0) return { decision: "allow", reason: "inside the workspace" };
-      if (c.fs === "any" && autonomy === "hands-off") return { decision: "allow", reason: "hands-off" };
-      return { decision: "ask", reason: `${kind} outside the workspace: ${outside.join(", ")}` };
+      // not something to bother the user with: the role decides (cautious mode still asks)
+      if (autonomy === "cautious") return { decision: "ask", reason: `${kind} outside the workspace: ${outside.join(", ")}` };
+      return c.fs === "any"
+        ? { decision: "allow", reason: "role may write anywhere" }
+        : { decision: "deny", reason: `${kind} outside the workspace is not allowed (${outside.join(", ")}); work inside it` };
     }
     case "execute": {
       const cmd = commandOf(tc);

@@ -9,6 +9,7 @@ import {
   CirclePause,
   CirclePlay,
   CircleStop,
+  Zap,
   GitMerge,
   Hand,
   Loader2,
@@ -322,6 +323,16 @@ export function GoalActions({ goal, onRemoved }: { goal: Goal; onRemoved?: () =>
   const running = !["done", "cancelled", "failed"].includes(goal.status);
   return (
     <div className="flex shrink-0 items-center gap-0.5">
+      {running && (
+        <IconButton
+          tip={goal.priority ? tr("Urgent: its work goes ahead of everything queued (click for normal)") : tr("Make it urgent: its work goes ahead of everything queued")}
+          className={cn("size-6", goal.priority ? "text-warning" : "")}
+          active={!!goal.priority}
+          onClick={() => forge.setPriority(goal.id, !goal.priority)}
+        >
+          <Zap />
+        </IconButton>
+      )}
       {running ? (
         <IconButton
           tip={tr("Cancel this goal")}

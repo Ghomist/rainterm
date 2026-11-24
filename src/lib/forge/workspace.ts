@@ -11,8 +11,9 @@ export async function git(cwd: string, ...args: string[]) {
   return r.stdout;
 }
 
+/** A repository with at least one commit (an empty one can't be branched: treated as a plain folder). */
 export async function isGitRepo(path: string) {
-  const r = await run(["git", "rev-parse", "--show-toplevel"], { cwd: path, timeoutMs: 15_000 });
+  const r = await run(["git", "rev-parse", "--verify", "--quiet", "HEAD"], { cwd: path, timeoutMs: 15_000 });
   return r.code === 0;
 }
 

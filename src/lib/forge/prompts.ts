@@ -72,7 +72,7 @@ ${pool}
 ${args.feedback ? `\n## Feedback on your previous plan\n${args.feedback}\n` : ""}
 ## Output
 Keep it small: prefer 1 feature with 1–6 stories unless the goal clearly needs more. A simple question or lookup is a single story.
-If the goal is too ambiguous to plan, return no features and put your questions in \`questions\`.
+Don't ask what you can decide: go with the most sensible reading and put your assumptions in the feature's constraints. Only if the goal truly can't be started without the user (which of several machines, a password, a choice only they can make) return no features and put those questions in \`questions\`.
 End your reply with exactly one fenced JSON block:
 \`\`\`json
 {
@@ -142,7 +142,7 @@ When finished, write your answer for the user in Markdown — what you found or 
   "evidence": ["short command output excerpts"],
   "outcome": "done" }
 \`\`\`
-outcome: "done" | "needs_split" (too big — explain in openIssues) | "needs_info" (blocked on a human answer — put the question in openIssues) | "failed".`;
+outcome: "done" | "needs_split" (too big — explain in openIssues) | "needs_info" (only when it truly cannot be done without the user — a password, a choice only they can make; otherwise assume sensibly and finish — put the question in openIssues) | "failed".`;
 }
 
 export function verifyPrompt(args: {
