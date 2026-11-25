@@ -184,7 +184,7 @@ interface AppState {
   openLocal(shell?: ShellSpec, opts?: { split?: "row" | "col" }): void;
   /** Open the agents board, or bring its tab forward (there is only one). */
   openAgents(): void;
-  connect(profile: Profile, opts?: { split?: "row" | "col" }): Promise<void>;
+  connect(profile: Profile, opts?: { split?: "row" | "col"; at?: SplitAt }): Promise<void>;
   quickConnect(spec: string): void;
   reconnect(paneId: string): void;
   /** Stop retrying a dropped connection. */
@@ -251,6 +251,12 @@ function removeLeaf(l: Layout, paneId: string): Layout | null {
   if (!a) return b;
   if (!b) return a;
   return { ...l, a, b };
+}
+
+/** Where a dropped session goes: next to `paneId`, on `side`. */
+export interface SplitAt {
+  paneId: string;
+  side: "left" | "right" | "top" | "bottom";
 }
 
 function replaceLeaf(l: Layout, paneId: string, node: Layout): Layout {
@@ -507,26 +513,31 @@ export const useApp: UseBoundStore<StoreApi<AppState>> =
     group: null,
   });
 
-  /** Put a pane in a new tab, or split the active pane with it. */
-  const place = (pane: Pane, split?: "row" | "col") => {
+  /** Put a pane in a new tab, or split the active pane (or the `at` pane, on the given
+   *  side) with it. */
+  const place = (pane: Pane, split?: "row" | "col", at?: SplitAt) => {
     const s = get();
-    const tab = s.tabs.find((t) => t.id === s.activeTabId);
-    if (split && tab && pane.session && s.panes[tab.activePane]?.session) {
+    const tab = at ? s.tabs.find((t) => layoutPanes(t.layout).includes(at.paneId)) : s.tabs.find((t) => t.id === s.activeTabId);
+    const target = at?.paneId ?? tab?.activePane;
+    const dir = at ? (at.side === "left" || at.side === "right" ? "row" : "col") : split;
+    if (dir && tab && target && pane.session && s.panes[target]?.session) {
+      const first = at?.side === "left" || at?.side === "top";
       const node: Layout = {
         type: "split",
         id: uid("s"),
-        dir: split,
+        dir,
         ratio: 0.5,
-        a: { type: "pane", paneId: tab.activePane },
-        b: { type: "pane", paneId: pane.id },
+        a: { type: "pane", paneId: first ? pane.id : target },
+        b: { type: "pane", paneId: first ? target : pane.id },
       };
       set({
         panes: { ...s.panes, [pane.id]: pane },
+        activeTabId: tab.id,
         tabs: s.tabs.map((t) =>
           t.id === tab.id
             ? {
                 ...t,
-                layout: replaceLeaf(t.layout, tab.activePane, node),
+                layout: replaceLeaf(t.layout, target, node),
                 activePane: pane.id,
                 zoomed: null,
               }
@@ -830,7 +841,7 @@ export const useApp: UseBoundStore<StoreApi<AppState>> =
     },
 
     async connect(profile, opts) {
-      place(await paneForProfile(profile), opts?.split);
+      place(await paneForProfile(profile), opts?.split, opts?.at);
     },
 
     quickConnect(spec) {

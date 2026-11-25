@@ -14,6 +14,7 @@
     "core:window:allow-start-dragging",
     "core:window:allow-is-maximized",
     "dialog:default",
+    "clipboard-manager:allow-write-text",
     "notification:default",
     "updater:default",
     "process:allow-restart",

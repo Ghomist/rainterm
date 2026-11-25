@@ -853,6 +853,10 @@ export const zh: Record<string, string> = {
   "No processes are using the NPU right now.": "目前没有进程在使用 NPU。",
 
   // ---------------------------------------------------------------- agents session
+  "Type the saved password?": "输入已保存的登录密码？",
+  "Yes": "是",
+  "Type it myself": "我自己输入",
+  "Open in split": "在分屏中打开",
   "Queued — agents are starting up": "排队中：agent 正在启动",
   "Waiting for an agent — set one up in Agents settings": "等待可用的 agent：请在 Agents 设置里配置一个",
   "Queued — the agents reached their usage limit; continues when it resets": "排队中：agent 额度暂时用完，恢复后自动继续",

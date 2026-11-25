@@ -37,7 +37,7 @@ import { Backdrop } from "./Backdrop";
 import { Gutter, gutterWidth } from "./Gutter";
 import { Latency } from "./Latency";
 import { openInstallKey } from "./SshKeys";
-import { SuggestOverlay } from "./Suggest";
+import { SudoOverlay, SuggestOverlay } from "./Suggest";
 import { StatusDot } from "./StatusDot";
 import { tr } from "@/lib/i18n";
 
@@ -257,6 +257,7 @@ function TerminalPane({
         {/* Clips the terminal while a side panel slides (it refits only once it settles). */}
         <div ref={ref} className="absolute top-0 right-0 bottom-0 overflow-hidden" style={{ left: width }} />
         <SuggestOverlay session={session} left={width} />
+        <SudoOverlay session={session} left={width} />
         {/* Dim unfocused panes a touch so the active one stands out. */}
         <div
           className={cn(

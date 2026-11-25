@@ -43,7 +43,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip } from "@/components/ui/tooltip";
 import { confirm, prompt, toast } from "@/lib/overlay";
 import { cn } from "@/lib/utils";
-import { allGroups, type Profile, useApp } from "@/store/app";
+import { allGroups, type Profile, type SplitAt, useApp } from "@/store/app";
 import { tr } from "@/lib/i18n";
 
 const QUICK = /^(?:ssh\s+)?(?:[^@\s]+@)?[^:\s@]+(?::\d+)?$/;
@@ -83,10 +83,39 @@ interface DragState {
   y: number;
   /** Group under the pointer ("" = ungrouped), or null when not over a drop target. */
   over: string | null;
+  /** Terminal pane under the pointer: dropping opens the session split beside it. */
+  pane: PaneDrop | null;
+}
+
+interface PaneDrop {
+  paneId: string;
+  side: SplitAt["side"];
+  /** Where the new pane will go (screen px), for the preview. */
+  rect: { left: number; top: number; width: number; height: number };
 }
 
 const dropTargetAt = (x: number, y: number) =>
   document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-drop-group]")?.dataset.dropGroup ?? null;
+
+/** Dropping on a terminal pane splits it towards the nearest edge. */
+function paneDropAt(x: number, y: number): PaneDrop | null {
+  const el = document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-pane-id]");
+  const paneId = el?.dataset.paneId;
+  if (!el || !paneId || !useApp.getState().panes[paneId]?.session) return null;
+  const r = el.getBoundingClientRect();
+  const fx = (x - r.left) / r.width;
+  const fy = (y - r.top) / r.height;
+  const d = { left: fx, right: 1 - fx, top: fy, bottom: 1 - fy };
+  const side = (Object.keys(d) as SplitAt["side"][]).reduce((a, b) => (d[b] < d[a] ? b : a));
+  const half = side === "left" || side === "right" ? r.width / 2 : r.height / 2;
+  const rect = {
+    left: side === "right" ? r.left + half : r.left,
+    top: side === "bottom" ? r.top + half : r.top,
+    width: side === "left" || side === "right" ? half : r.width,
+    height: side === "top" || side === "bottom" ? half : r.height,
+  };
+  return { paneId, side, rect };
+}
 
 function useProfileDrag() {
   const [drag, setDrag] = useState<DragState | null>(null);
@@ -98,14 +127,18 @@ function useProfileDrag() {
     const move = (ev: PointerEvent) => {
       if (!active && Math.hypot(ev.clientX - sx, ev.clientY - sy) < 5) return;
       active = true;
-      setDrag({ id: p.id, label: profileLabel(p), x: ev.clientX, y: ev.clientY, over: dropTargetAt(ev.clientX, ev.clientY) });
+      const over = dropTargetAt(ev.clientX, ev.clientY);
+      const pane = over === null ? paneDropAt(ev.clientX, ev.clientY) : null;
+      setDrag({ id: p.id, label: profileLabel(p), x: ev.clientX, y: ev.clientY, over, pane });
     };
     const up = (ev: PointerEvent) => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
       if (!active) return;
       const over = dropTargetAt(ev.clientX, ev.clientY);
+      const pane = over === null ? paneDropAt(ev.clientX, ev.clientY) : null;
       if (over !== null) void useApp.getState().moveProfile(p.id, over);
+      else if (pane) void useApp.getState().connect(p, { at: { paneId: pane.paneId, side: pane.side } });
       setDrag(null);
     };
     window.addEventListener("pointermove", move);
@@ -262,6 +295,14 @@ export function SessionsView() {
         ))}
       </ScrollArea>
 
+      {drag?.pane &&
+        createPortal(
+          <div
+            className="pointer-events-none fixed z-[99] rounded-md border-2 border-primary/60 bg-primary/10 transition-[left,top,width,height] duration-100"
+            style={drag.pane.rect}
+          />,
+          document.body,
+        )}
       {drag &&
         createPortal(
           <div
@@ -275,6 +316,7 @@ export function SessionsView() {
                 → <span className="text-primary">{drag.over || tr("Ungrouped")}</span>
               </span>
             )}
+            {drag.pane && <span className="text-muted-foreground">→ <span className="text-primary">{tr("Open in split")}</span></span>}
           </div>,
           document.body,
         )}

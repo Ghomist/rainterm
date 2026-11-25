@@ -11,6 +11,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { Blocks } from "./blocks";
 import {
   Channel,
@@ -46,6 +47,20 @@ const PATH_COMMANDS = new Set([
 
 /** Command names on PATH per machine (shared by all sessions of that machine). */
 const commandCache = new Map<string, { at: number; list: Promise<string[]> }>();
+
+/** sudo's password prompt: "[sudo] password for bob:", "[sudo] bob 的密码：", or a bare
+ *  "Password:" (macOS, custom prompts; only counted when the command is sudo). */
+const SUDO_PROMPT = /(?:\[sudo\] (?:password for (\S+?)|(\S+?) ?的密码)|^(?:\S+ )?(?:Password|密码))\s*[:：]\s*$/;
+
+/** Clipboard write through the OS (navigator.clipboard refuses whenever the window isn't
+ *  focused, e.g. an app copying via OSC 52 while you're elsewhere). */
+export async function writeClipboard(text: string) {
+  try {
+    await writeText(text);
+  } catch {
+    await navigator.clipboard.writeText(text).catch(() => {});
+  }
+}
 
 export type SessionSource =
   | { kind: "local"; shell: ShellSpec }
@@ -158,6 +173,22 @@ export class TermSession {
       if (data.startsWith("9;")) this.reportCwd(data.slice(2).replace(/^"|"$/g, ""));
       return false;
     });
+    // OSC 52: an app copies to the clipboard (codex, neovim, tmux, TUIs that do their own
+    // mouse selection…). Write-only: apps may never read the clipboard back.
+    this.term.parser.registerOscHandler(52, (data) => {
+      const payload = data.slice(data.indexOf(";") + 1);
+      if (!payload || payload === "?") return true;
+      try {
+        const bin = atob(payload);
+        const text = new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)));
+        if (text) void writeClipboard(text);
+      } catch {
+        /* not base64: ignore */
+      }
+      return true;
+    });
+    // sudo asking for the password we logged in with: offer to type it (see sudoOffer).
+    this.term.onWriteParsed(() => this.checkSudo());
     // Session log: record lines as *rendered*, not the raw byte stream (ConPTY paints
     // with cursor positioning, so neither raw bytes nor line-feed events are reliable).
     // Everything between the log marker and the cursor's line is considered final.
@@ -182,9 +213,76 @@ export class TermSession {
     });
     this.term.onSelectionChange(() => {
       if (this.settings.copyOnSelect && this.term.hasSelection())
-        void navigator.clipboard.writeText(this.term.getSelection());
+        void writeClipboard(this.term.getSelection());
     });
     this.term.attachCustomKeyEventHandler((e) => this.handleKey(e));
+  }
+
+  // ---------------------------------------------------------------- sudo password
+
+  /** sudo is asking for the password this SSH session logged in with. Shown as a local
+   *  chip on the prompt line: Enter types the saved password, Esc / any key = type it yourself. */
+  sudoOffer: { line: number } | null = null;
+  private sudoListeners = new Set<() => void>();
+  /** Prompt line the user already answered or dismissed (absolute buffer row). */
+  private sudoDone = -1;
+  /** When the saved password was last typed (a new prompt right after = it was wrong). */
+  private sudoFilledAt = 0;
+
+  onSudo(fn: () => void) {
+    this.sudoListeners.add(fn);
+    return () => this.sudoListeners.delete(fn);
+  }
+
+  private sudoPassword(): string | null {
+    const src = this.source;
+    return src.kind === "ssh" && src.target.auth.kind === "password" && src.secret ? src.secret : null;
+  }
+
+  private setSudo(offer: { line: number } | null) {
+    if (offer?.line === this.sudoOffer?.line) return;
+    this.sudoOffer = offer;
+    for (const fn of this.sudoListeners) fn();
+  }
+
+  private checkSudo() {
+    const src = this.source;
+    const buf = this.term.buffer.active;
+    if (!this.sudoPassword() || src.kind !== "ssh" || buf.type !== "normal") return this.setSudo(null);
+    const y = buf.baseY + buf.cursorY;
+    if (y === this.sudoDone) return this.setSudo(null);
+    const text = buf.getLine(y)?.translateToString(true, 0, buf.cursorX) ?? "";
+    const m = text.match(SUDO_PROMPT);
+    let ok = false;
+    if (m) {
+      const who = m[1] ?? m[2];
+      // a prompt for someone else's password (after su) isn't ours to answer
+      if (who) ok = who === src.target.user;
+      else {
+        const b = this.blocks.blockCovering(y);
+        ok = b >= 0 && /^\s*sudo(\s|$)/.test(this.blocks.list[b]?.command ?? "");
+      }
+    }
+    // asked again right after we typed it: the saved password is wrong, leave it to you
+    if (ok && performance.now() - this.sudoFilledAt < 8000) {
+      this.sudoDone = y;
+      ok = false;
+    }
+    this.setSudo(ok ? { line: y } : null);
+  }
+
+  /** Answer the sudo prompt: type the saved password (true) or leave it to the user. */
+  answerSudo(fill: boolean) {
+    const offer = this.sudoOffer;
+    const pw = this.sudoPassword();
+    if (!offer) return;
+    this.sudoDone = offer.line;
+    this.setSudo(null);
+    if (fill && pw) {
+      this.sudoFilledAt = performance.now();
+      // not user input: never reaches block detection, history, broadcast or logs of keys
+      this.input(`${pw}\r`);
+    }
   }
 
   /** When output was last written to the terminal (performance.now()). */
@@ -788,6 +886,15 @@ export class TermSession {
 
   private handleKey(e: KeyboardEvent): boolean {
     if (e.type !== "keydown") return true;
+    if (this.sudoOffer && !["Shift", "Control", "Alt", "Meta"].includes(e.key)) {
+      const plain = !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey;
+      if (plain && (e.key === "Enter" || e.key === "Escape")) {
+        this.answerSudo(e.key === "Enter");
+        e.preventDefault();
+        return false;
+      }
+      this.answerSudo(false); // typing the password yourself
+    }
     // Only Enter is paced on key repeat: it is what builds a backlog of prompts in a slow
     // shell. Other keys (Backspace, arrows, letters) repeat at full keyboard speed.
     if (e.repeat && this.alive && e.key === "Enter") {
@@ -853,7 +960,7 @@ export class TermSession {
     // Copy: Ctrl+Shift+C always; Ctrl+C only when there's a selection (Windows Terminal style).
     if (mod && key === "c" && (e.shiftKey || this.term.hasSelection())) {
       if (this.term.hasSelection()) {
-        void navigator.clipboard.writeText(this.term.getSelection());
+        void writeClipboard(this.term.getSelection());
         this.term.clearSelection();
       }
       e.preventDefault();
@@ -883,7 +990,7 @@ export class TermSession {
     if (!this.settings.rightClickPaste) return;
     e.preventDefault();
     if (this.term.hasSelection()) {
-      void navigator.clipboard.writeText(this.term.getSelection());
+      void writeClipboard(this.term.getSelection());
       this.term.clearSelection();
     } else {
       void this.paste();
