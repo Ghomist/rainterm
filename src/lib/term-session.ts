@@ -12,6 +12,8 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { tr } from "./i18n";
+import { confirm } from "./overlay";
 import { Blocks } from "./blocks";
 import {
   Channel,
@@ -93,6 +95,11 @@ export class TermSession {
   /** Extra consumer of user input (broadcast mode). */
   inputHook: ((data: string) => void) | null = null;
   onCwd: ((cwd: string) => void) | null = null;
+  /** A program reports progress (OSC 9;4): 1 normal, 2 error, 3 busy (no value), 4 paused. */
+  onProgress: ((p: { state: 1 | 2 | 3 | 4; value: number } | null) => void) | null = null;
+  /** A program asks for attention: a notification (OSC 9 / 777) or the bell. */
+  onNotify: ((body: string, title?: string) => void) | null = null;
+  onBell: (() => void) | null = null;
 
   private fit = new FitAddon();
   private id: string | null = null;
@@ -169,10 +176,25 @@ export class TermSession {
       return false;
     });
     // OSC 9;9: ConEmu / Windows Terminal style cwd report.
+    // OSC 9;4: progress (Windows Terminal / ConEmu: winget, cargo, codex…);
+    // other OSC 9: a notification (iTerm2 style: Claude Code, codex asking for you).
     this.term.parser.registerOscHandler(9, (data) => {
       if (data.startsWith("9;")) this.reportCwd(data.slice(2).replace(/^"|"$/g, ""));
+      else if (data.startsWith("4;")) {
+        const [, st, pr] = data.split(";");
+        const state = Number(st) || 0;
+        this.onProgress?.(state === 0 ? null : { state: Math.min(4, state) as 1 | 2 | 3 | 4, value: Math.max(0, Math.min(100, Number(pr) || 0)) });
+      } else if (data.trim() && !/^\d+;/.test(data)) this.onNotify?.(data.trim());
       return false;
     });
+    // OSC 777;notify;title;body (urxvt / foot / Ghostty style).
+    this.term.parser.registerOscHandler(777, (data) => {
+      const [kind, title = "", ...body] = data.split(";");
+      if (kind === "notify") this.onNotify?.(body.join(";").trim() || title.trim(), body.length ? title.trim() : undefined);
+      return true;
+    });
+    // A bell from a program: it usually wants you (an agent waiting for an answer).
+    this.term.onBell(() => this.onBell?.());
     // OSC 52: an app copies to the clipboard (codex, neovim, tmux, TUIs that do their own
     // mouse selection…). Write-only: apps may never read the clipboard back.
     this.term.parser.registerOscHandler(52, (data) => {
@@ -611,6 +633,16 @@ export class TermSession {
       this.opened = true;
       this.loadWebgl();
       el.addEventListener("contextmenu", this.onContextMenu);
+      // The browser's own paste (menu, Ctrl+V where xterm lets it through): same checks.
+      el.addEventListener(
+        "paste",
+        (e) => {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          void this.pasteText(e.clipboardData?.getData("text/plain") ?? "");
+        },
+        true,
+      );
       // Focus left the terminal (another pane, a panel, another window): drop the popup.
       this.term.textarea?.addEventListener("blur", () => {
         if (this.suggestTimer !== null) clearTimeout(this.suggestTimer), (this.suggestTimer = null);
@@ -907,6 +939,13 @@ export class TermSession {
       }
       this.repeatSentAt = now;
     }
+    // Shift+Enter in a program (codex, Claude Code, opencode…): a new line, not "send".
+    // ESC + Enter is what those tools take for it (and what Windows Terminal setups send).
+    if (e.key === "Enter" && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && !this.suggestion.popup && this.programRunning()) {
+      this.input("\x1b\r", true);
+      e.preventDefault();
+      return false;
+    }
     // Completion popup (VS Code style): ↑↓ select, Tab accepts, Enter accepts only after
     // you navigated (otherwise it runs what you typed), Esc dismisses, Ctrl+Space opens.
     const popup = this.suggestion.popup;
@@ -982,7 +1021,39 @@ export class TermSession {
 
   async paste() {
     const text = await navigator.clipboard.readText().catch(() => "");
-    if (text) this.term.paste(text);
+    await this.pasteText(text);
+  }
+
+  /** Every paste ends here (keys, right click, the browser's paste event). */
+  async pasteText(text: string) {
+    const bracketed = this.term.modes.bracketedPasteMode;
+    if (!text) {
+      // Nothing as text (an image on the clipboard): a program in bracketed-paste mode still
+      // hears a paste and reads the clipboard itself (codex, OpenCode, Claude Code images).
+      if (bracketed && this.alive) this.input("\x1b[200~\x1b[201~");
+      return;
+    }
+    const lines = text.replace(/\r\n?/g, "\n").replace(/\n+$/, "").split("\n");
+    if (lines.length > 1 && !bracketed && this.settings.confirmMultilinePaste) {
+      const preview = lines.slice(0, 12).join("\n") + (lines.length > 12 ? `\n… (+${lines.length - 12})` : "");
+      const ok = await confirm({
+        title: tr("Paste {0} lines?", { 0: lines.length }),
+        message: tr("The program here would run each line as soon as it arrives. (Settings › Terminal can turn this question off.)"),
+        detail: preview,
+        confirmLabel: tr("Paste"),
+      });
+      this.focus();
+      if (!ok) return;
+    }
+    this.term.paste(text);
+  }
+
+  /** The program running in the foreground, not the shell waiting at its prompt. */
+  private programRunning() {
+    if (this.term.buffer.active.type === "alternate") return true;
+    if (!this.blocks.integrated) return true; // can't tell: assume a program (Shift+Enter is rarely used at a prompt)
+    const last = this.blocks.list.at(-1);
+    return !!last && last.finishedAt === null;
   }
 
   /** Right click: copy if there's a selection, otherwise paste (PuTTY / WindTerm style). */

@@ -16,6 +16,9 @@ pub struct ShellSpec {
     pub program: String,
     #[serde(default)]
     pub args: Vec<String>,
+    /// Start in this folder (default: home).
+    #[serde(default)]
+    pub cwd: Option<String>,
 }
 
 pub fn spawn(spec: ShellSpec, cols: u16, rows: u16, io: BackendIo) -> anyhow::Result<()> {
@@ -26,12 +29,18 @@ pub fn spawn(spec: ShellSpec, cols: u16, rows: u16, io: BackendIo) -> anyhow::Re
 
     let mut cmd = CommandBuilder::new(&spec.program);
     cmd.args(&spec.args);
-    if let Some(home) = dirs::home_dir() {
-        cmd.cwd(home);
+    match spec.cwd.as_deref().filter(|d| std::path::Path::new(d).is_dir()) {
+        Some(dir) => cmd.cwd(dir),
+        None => {
+            if let Some(home) = dirs::home_dir() {
+                cmd.cwd(home);
+            }
+        }
     }
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     cmd.env("TERM_PROGRAM", "rainterm");
+    cmd.env("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"));
     super::posix_integration::apply(&mut cmd, &spec.id);
 
     let mut child = pair.slave.spawn_command(cmd)?;
@@ -148,6 +157,7 @@ pub fn detect_shells() -> Vec<ShellSpec> {
             name: name.into(),
             program: program.to_string_lossy().into_owned(),
             args: args.iter().map(|s| s.to_string()).collect(),
+            cwd: None,
         });
     }
 

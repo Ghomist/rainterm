@@ -91,7 +91,9 @@ export interface Pane {
   /** Input group id: typing in one member goes to all members (any tab). */
   group: string | null;
   /** A long command finished while you weren't looking (cleared when you look). */
-  attention?: "ok" | "fail" | null;
+  attention?: "ok" | "fail" | "wait" | null;
+  /** Progress a program reports (OSC 9;4). */
+  progress?: { state: 1 | 2 | 3 | 4; value: number } | null;
   /** The SSH connection dropped and will be retried (auto-reconnect). */
   retry?: { attempt: number; at: number } | null;
 }
@@ -181,7 +183,7 @@ interface AppState {
   hostKeyPrompt: HostKeyPrompt | null;
 
   init(): Promise<void>;
-  openLocal(shell?: ShellSpec, opts?: { split?: "row" | "col" }): void;
+  openLocal(shell?: ShellSpec, opts?: { split?: "row" | "col"; cwd?: string }): void;
   /** Open the agents board, or bring its tab forward (there is only one). */
   openAgents(): void;
   connect(profile: Profile, opts?: { split?: "row" | "col"; at?: SplitAt }): Promise<void>;
@@ -328,6 +330,31 @@ export const useApp: UseBoundStore<StoreApi<AppState>> =
       });
     } catch {
       /* notifications unavailable: the tab mark still shows */
+    }
+  };
+  /** A program asks for you (an agent waiting, a notification): mark its tab when it's out
+   *  of sight, and post a system notification when the window is too (one per 3 s). */
+  const lastPing = new Map<string, number>();
+  const wantsYou = async (paneId: string, body: string, title?: string, bell = false) => {
+    const tab = tabOfPane(paneId);
+    const pane = get().panes[paneId];
+    if (!tab || !pane) return;
+    const looking = document.hasFocus() && !document.hidden && get().activeTabId === tab.id;
+    if (looking) return;
+    if (pane.attention !== "fail") patchPane(paneId, { attention: "wait" });
+    if (document.hasFocus() || !get().settings.notifyAfterSeconds) return;
+    const now = Date.now();
+    if (now - (lastPing.get(paneId) ?? 0) < 3000) return;
+    lastPing.set(paneId, now);
+    try {
+      const n = await import("@tauri-apps/plugin-notification");
+      let ok = await n.isPermissionGranted();
+      if (!ok) ok = (await n.requestPermission()) === "granted";
+      if (!ok) return;
+      const name = tab.name ?? pane.title;
+      n.sendNotification({ title: title || (bell ? tr("{0} needs you", { 0: name }) : name), body: body || (bell ? tr("A program there is waiting for you.") : "") });
+    } catch {
+      /* the tab mark still shows */
     }
   };
   const clearAttention = (paneIds: string[]) => {
@@ -481,7 +508,15 @@ export const useApp: UseBoundStore<StoreApi<AppState>> =
     const id = uid("p");
     const session = new TermSession(source, eff(), handleEvent(id));
     session.onCwd = (cwd) => patchPane(id, { cwd });
+    session.onProgress = (progress) => {
+      const cur = get().panes[id]?.progress;
+      if (cur?.state !== progress?.state || cur?.value !== progress?.value) patchPane(id, { progress });
+    };
+    session.onNotify = (body, title) => void wantsYou(id, body, title);
+    session.onBell = () => void wantsYou(id, "", undefined, true);
     session.blocks.onFinish((b, quiet) => {
+      // a program that ended without clearing its progress (OSC 9;4;0) leaves no bar behind
+      if (get().panes[id]?.progress) patchPane(id, { progress: null });
       if (!quiet) void commandDone(id, b);
     });
     return {
@@ -677,7 +712,7 @@ export const useApp: UseBoundStore<StoreApi<AppState>> =
 
   const restorePane = async (src: SavedSource): Promise<Pane | null> => {
     const { shells, profiles } = get();
-    if (src.kind === "agents") return makeAgentsPane();
+    if (src.kind === "agents") return get().settings.agentsBoard ? makeAgentsPane() : null;
     if (src.kind === "local") {
       const sh = shells.find((x) => x.id === src.shellId) ?? shells[0];
       return sh ? makePane({ kind: "local", shell: sh }, sh.name, "local") : null;
@@ -816,7 +851,16 @@ export const useApp: UseBoundStore<StoreApi<AppState>> =
         ? await ipc.storeLoad<SavedSession>("session").catch(() => null)
         : null;
       const ok = saved?.tabs?.length ? await restoreSession(saved).catch(() => false) : false;
-      if (!ok && get().tabs.length === 0 && shells.length > 0) get().openLocal();
+      // Launched on a folder (Explorer's "Open in rainterm", `rainterm .`): a shell there.
+      const folder = await ipc.launchFolder().catch(() => null);
+      if (folder && shells.length > 0) get().openLocal(undefined, { cwd: folder });
+      else if (!ok && get().tabs.length === 0 && shells.length > 0) get().openLocal();
+      // …and launched again while running: the second launch hands its folder over.
+      void import("@tauri-apps/api/event").then(({ listen }) =>
+        listen<string>("open-folder", (e) => {
+          if (e.payload) get().openLocal(undefined, { cwd: e.payload });
+        }),
+      );
       restored = true;
       scheduleSave();
     },
@@ -825,10 +869,11 @@ export const useApp: UseBoundStore<StoreApi<AppState>> =
       const { shells, settings } = get();
       const sh = shell ?? shells.find((s) => s.id === settings.defaultShell) ?? shells[0];
       if (!sh) return;
-      place(makePane({ kind: "local", shell: sh }, sh.name, "local"), opts?.split);
+      place(makePane({ kind: "local", shell: opts?.cwd ? { ...sh, cwd: opts.cwd } : sh }, sh.name, "local"), opts?.split);
     },
 
     openAgents() {
+      if (!get().settings.agentsBoard) return; // experimental, off in settings
       // a single agents board: opening it again brings that tab forward
       const existing = Object.values(get().panes).find((p) => p.kind === "agents");
       const tab = existing && tabOfPane(existing.id);

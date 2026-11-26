@@ -16,6 +16,7 @@ import { SettingsDialog } from "@/components/SettingsDialog";
 import { StatusBar } from "@/components/StatusBar";
 import { TerminalArea } from "@/components/TerminalArea";
 import { TitleBar } from "@/components/TitleBar";
+import { VerticalTabs } from "@/components/VerticalTabs";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ipc } from "@/lib/ipc";
 import { comboFromEvent, keymap, recording } from "@/lib/keymap";
@@ -42,6 +43,43 @@ export default function App() {
   useEffect(() => {
     document.documentElement.dataset.effects = effects ? "on" : "off";
   }, [effects]);
+
+  // Programs' progress (OSC 9;4) on the taskbar button too: an error wins, else the least
+  // done; busy-without-a-value shows as indeterminate.
+  useEffect(() => {
+    let last = "";
+    const apply = (panes: ReturnType<typeof useApp.getState>["panes"]) => {
+      const all = Object.values(panes).map((p) => p.progress).filter((p) => !!p);
+      const p = all.find((x) => x.state === 2) ?? all.find((x) => x.state === 1 || x.state === 4) ?? all[0];
+      const key = p ? `${p.state}:${p.value}` : "";
+      if (key === last) return;
+      last = key;
+      void import("@tauri-apps/api/window").then(({ getCurrentWindow, ProgressBarStatus }) => {
+        const status = !p
+          ? ProgressBarStatus.None
+          : p.state === 2
+            ? ProgressBarStatus.Error
+            : p.state === 3
+              ? ProgressBarStatus.Indeterminate
+              : p.state === 4
+                ? ProgressBarStatus.Paused
+                : ProgressBarStatus.Normal;
+        return getCurrentWindow().setProgressBar({ status, progress: p ? Math.round(p.value) : undefined });
+      }).catch(() => {});
+    };
+    return useApp.subscribe((s, prev) => {
+      if (s.panes !== prev.panes) apply(s.panes);
+    });
+  }, []);
+
+  // Agents (experimental) switched off: close the board and let the agents go.
+  const agentsOn = useApp((s) => s.settings.agentsBoard);
+  useEffect(() => {
+    if (agentsOn) return;
+    const st = useApp.getState();
+    for (const p of Object.values(st.panes)) if (p.kind === "agents") st.closePane(p.id);
+    void import("@/lib/forge/engine").then(({ forge }) => forge.halt());
+  }, [agentsOn]);
 
   useEffect(() => {
     document.documentElement.dataset.reduce = reduce ? "on" : "off";
@@ -145,6 +183,7 @@ export default function App() {
           <TitleBar />
           <div className="flex min-h-0 flex-1">
             <Dock side="left" />
+            <VerticalTabs />
             <TerminalArea />
             <Dock side="right" />
           </div>

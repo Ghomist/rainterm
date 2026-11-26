@@ -155,6 +155,16 @@ function Appearance() {
           onChange={(v) => void update({ themeMode: v })}
         />
       </Field>
+      <Field label={tr("Tabs")}>
+        <Segmented
+          value={s.tabPosition}
+          options={[
+            { value: "top", label: tr("Across the top") },
+            { value: "left", label: tr("Down the left") },
+          ]}
+          onChange={(v) => void update({ tabPosition: v })}
+        />
+      </Field>
       <Field label={tr("Dark theme")}>
         <div className="grid grid-cols-3 gap-2">
           {darkThemes.map((t) => (
@@ -297,6 +307,42 @@ function BackgroundField() {
   );
 }
 
+/** Windows: "Open in rainterm" in Explorer's folder menu, and `rainterm` on PATH. */
+function ExplorerIntegration() {
+  const [on, setOn] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    void ipc.winIntegrationStatus().then(setOn, () => setOn(false));
+  }, []);
+  const flip = async (v: boolean) => {
+    setBusy(true);
+    try {
+      await ipc.winIntegrationSet(v, tr("Open in rainterm"));
+      setOn(v);
+      toast({
+        kind: "success",
+        title: v ? tr("Added to Explorer and PATH") : tr("Removed from Explorer and PATH"),
+        description: v ? tr("Right-click a folder → Open in rainterm. New terminals can run `rainterm .`") : undefined,
+      });
+    } catch (e) {
+      toast({ kind: "error", title: tr("Couldn't change it"), description: String(e) });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="flex items-center justify-between gap-4 rounded-lg border border-ov/[0.07] px-3 py-2.5">
+      <div>
+        <div className="text-[12.5px] font-medium">{tr("Open folders from Explorer")}</div>
+        <div className="text-[11.5px] text-muted-foreground">
+          {tr("Adds “Open in rainterm” to folders' right-click menu (Windows 11: under Show more options), and puts rainterm on your PATH so `rainterm .` works. For you only; no administrator needed.")}
+        </div>
+      </div>
+      <Switch checked={!!on} disabled={on === null || busy} onChange={(v) => void flip(v)} />
+    </div>
+  );
+}
+
 function TerminalSection() {
   const [s, update] = useSettings();
   const shells = useApp((x) => x.shells);
@@ -312,6 +358,7 @@ function TerminalSection() {
           ]}
         />
       </Field>
+      {navigator.userAgent.includes("Windows") && <ExplorerIntegration />}
       <Field label={tr("Download folder (SFTP)")}>
         <div className="flex gap-1.5">
           <Input
@@ -411,6 +458,9 @@ function TerminalSection() {
         </Check>
         <Check checked={s.rightClickPaste} onChange={(v) => void update({ rightClickPaste: v })}>
           {tr("Right click copies selection / pastes")}
+        </Check>
+        <Check checked={s.confirmMultilinePaste} onChange={(v) => void update({ confirmMultilinePaste: v })}>
+          {tr("Ask before pasting several lines a program would run one by one")}
         </Check>
         <Check checked={s.sshAutoIntegration} onChange={(v) => void update({ sshAutoIntegration: v })}>
           {tr("Set up shell integration automatically on SSH connect (types one setup line at the first prompt — can answer login-time questions by mistake; you can also enable it per terminal from the command palette)")}

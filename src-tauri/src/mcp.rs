@@ -40,6 +40,21 @@ fn pending() -> &'static Mutex<HashMap<u64, oneshot::Sender<Value>>> {
 }
 static NEXT: AtomicU64 = AtomicU64::new(1);
 
+/// Tools the user switched on in Settings (None = not told yet: everything).
+fn allowed() -> &'static Mutex<Option<std::collections::HashSet<String>>> {
+    static A: OnceLock<Mutex<Option<std::collections::HashSet<String>>>> = OnceLock::new();
+    A.get_or_init(Default::default)
+}
+
+/// Settings → MCP permissions: only these tools are listed and callable.
+pub fn set_tools(names: Vec<String>) {
+    *allowed().lock() = Some(names.into_iter().collect());
+}
+
+fn is_allowed(name: &str) -> bool {
+    allowed().lock().as_ref().is_none_or(|a| a.contains(name))
+}
+
 #[derive(Serialize, Clone)]
 struct CallEvent {
     id: u64,
@@ -243,11 +258,12 @@ async fn handle(app: &AppHandle, m: Value, kb_only: bool) -> Option<Value> {
             }))
         }
         "ping" => ok(json!({})),
-        "tools/list" => ok(json!({ "tools": tools(kb_only) })),
+        "tools/list" => ok(json!({ "tools": listed(kb_only) })),
         "tools/call" => {
             let name = m.pointer("/params/name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            if !tools(kb_only).iter().any(|t| t["name"] == name) {
-                return err(-32602, format!("unknown tool: {name}"));
+            if !listed(kb_only).iter().any(|t| t["name"] == name) {
+                let known = tools(kb_only).iter().any(|t| t["name"] == name);
+                return err(-32602, if known { format!("tool {name} is turned off in rainterm (Settings → Agent → MCP server → permissions)") } else { format!("unknown tool: {name}") });
             }
             let args = m.pointer("/params/arguments").cloned().unwrap_or(json!({}));
             let r = if crate::kb::TOOLS.contains(&name.as_str()) { knowledge(&name, &args).await } else { call(app, name, args).await };
@@ -292,6 +308,16 @@ async fn knowledge(name: &str, args: &Value) -> anyhow::Result<Value> {
 
 pub fn kb_tools() -> Vec<Value> {
     crate::kb::tool_defs()
+}
+
+/// What a client may see and call: the user's choice (the knowledge-only endpoint serves
+/// rainterm's own agents and isn't filtered).
+fn listed(kb_only: bool) -> Vec<Value> {
+    let all = tools(kb_only);
+    if kb_only {
+        return all;
+    }
+    all.into_iter().filter(|t| t["name"].as_str().is_some_and(is_allowed)).collect()
 }
 
 fn tools(kb_only: bool) -> Vec<Value> {
@@ -340,11 +366,71 @@ fn tools(kb_only: bool) -> Vec<Value> {
         }),
         json!({
             "name": "open_terminal",
-            "description": "Open a new terminal tab: a saved session (by id or name from list_hosts) or a local shell. Returns its terminal id once connected. The user may have to approve it.",
+            "description": "Open a terminal: a saved session (by id or name from list_hosts) or a local shell, in a new tab or split beside an open terminal (different hosts can share one tab). Returns its terminal id once connected. The user may have to approve it.",
             "inputSchema": { "type": "object", "properties": {
                 "session": { "type": "string", "description": "Saved session id or name." },
-                "shell": { "type": "string", "description": "Local shell id or name (when no session is given)." }
+                "shell": { "type": "string", "description": "Local shell id or name (when no session is given)." },
+                "split": { "type": "string", "enum": ["right", "left", "down", "up"], "description": "Open it split beside `beside` (default: the active terminal) instead of in a new tab." },
+                "beside": term
             }, "additionalProperties": false }
+        }),
+        json!({
+            "name": "focus_terminal",
+            "description": "Bring a terminal on screen and focus it (switches to its tab).",
+            "inputSchema": { "type": "object", "properties": { "terminal": term }, "required": ["terminal"], "additionalProperties": false }
+        }),
+        json!({
+            "name": "close_terminal",
+            "description": "Close a terminal (disconnects it). The user may have to approve it.",
+            "inputSchema": { "type": "object", "properties": { "terminal": term }, "required": ["terminal"], "additionalProperties": false },
+            "annotations": { "destructiveHint": true }
+        }),
+        json!({
+            "name": "save_session",
+            "description": "Add a saved SSH session to the sessions list, or change one (pass `session`, its id or name). Passwords are never set this way: the user types them on first connect. The user may have to approve it.",
+            "inputSchema": { "type": "object", "properties": {
+                "session": { "type": "string", "description": "Existing session id or name to change (omit to add a new one)." },
+                "name": { "type": "string" },
+                "host": { "type": "string" },
+                "port": { "type": "number" },
+                "user": { "type": "string" },
+                "group": { "type": "string", "description": "Group (folder) in the sessions list; empty = ungrouped." },
+                "auth": { "type": "string", "enum": ["auto", "password", "key", "agent"] },
+                "key_path": { "type": "string", "description": "Private key file, for auth = key." }
+            }, "additionalProperties": false }
+        }),
+        json!({
+            "name": "delete_session",
+            "description": "Remove a saved session from the sessions list (always asks the user).",
+            "inputSchema": { "type": "object", "properties": { "session": { "type": "string", "description": "Session id or name." } }, "required": ["session"], "additionalProperties": false },
+            "annotations": { "destructiveHint": true }
+        }),
+        json!({
+            "name": "list_files",
+            "description": "List a folder on a terminal's machine (the SSH host for SSH terminals, this computer for local ones). Default: the terminal's home folder.",
+            "inputSchema": { "type": "object", "properties": {
+                "terminal": term,
+                "path": { "type": "string" }
+            }, "additionalProperties": false },
+            "annotations": { "readOnlyHint": true }
+        }),
+        json!({
+            "name": "upload_files",
+            "description": "Upload files or folders from this computer to an SSH terminal's host (shown in rainterm's transfers). The user may have to approve it.",
+            "inputSchema": { "type": "object", "properties": {
+                "terminal": term,
+                "local_paths": { "type": "array", "items": { "type": "string" } },
+                "remote_dir": { "type": "string" }
+            }, "required": ["local_paths", "remote_dir"], "additionalProperties": false }
+        }),
+        json!({
+            "name": "download_files",
+            "description": "Download files or folders from an SSH terminal's host to this computer (default: the Downloads folder). Returns the local paths. The user may have to approve it.",
+            "inputSchema": { "type": "object", "properties": {
+                "terminal": term,
+                "remote_paths": { "type": "array", "items": { "type": "string" } },
+                "local_dir": { "type": "string" }
+            }, "required": ["remote_paths"], "additionalProperties": false }
         }),
     ]
     .into_iter()

@@ -3,6 +3,9 @@
 // open at once, and Ctrl+Shift+B hides both panels.
 import {
   Activity,
+  CalendarClock,
+  Cog,
+  ScrollText,
   ArrowDown,
   ArrowLeftToLine,
   ArrowRightToLine,
@@ -22,7 +25,7 @@ import {
 import { AnimatePresence, motion } from "motion/react";
 import { beginLayoutAnimation, endLayoutAnimation } from "@/lib/layout-anim";
 import { ErrorBoundary } from "./ErrorBoundary";
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -40,6 +43,7 @@ import { FilesView } from "./FilePanel";
 import { KnowledgePanel } from "./KnowledgePanel";
 import { MonitorPanel } from "./MonitorPanel";
 import { ContainersPanel, K8sPanel, PortsPanel } from "./OpsPanels";
+import { CronPanel, LogsPanel, ServicesPanel } from "./ServerPanels";
 import { SessionsView } from "./Sidebar";
 import { SnippetsPanel } from "./SnippetsPanel";
 import { tr } from "@/lib/i18n";
@@ -50,11 +54,14 @@ export const VIEWS: Record<ViewId, { label: string; icon: React.ReactNode; rende
   monitor: { label: "Resource monitor", icon: <Activity />, render: () => <MonitorPanel /> },
   snippets: { label: "Quick commands", icon: <Zap />, render: () => <SnippetsPanel /> },
   agent: { label: "Agent", icon: <Sparkles />, render: () => <AgentPanel /> },
-  ports: { label: "Ports", icon: <Network />, render: () => <PortsPanel /> },
+  ports: { label: "Network", icon: <Network />, render: () => <PortsPanel /> },
   containers: { label: "Containers", icon: <Boxes />, render: () => <ContainersPanel /> },
   k8s: { label: "Kubernetes", icon: <Ship />, render: () => <K8sPanel /> },
   agents: { label: "Agent pool", icon: <Bot />, render: () => <AgentsDock /> },
   knowledge: { label: "Knowledge base", icon: <BookOpen />, render: () => <KnowledgePanel /> },
+  services: { label: "System services", icon: <Cog />, render: () => <ServicesPanel /> },
+  logs: { label: "Logs", icon: <ScrollText />, render: () => <LogsPanel /> },
+  cron: { label: "Scheduled tasks", icon: <CalendarClock />, render: () => <CronPanel /> },
 };
 
 /** Full-width, square rail cells flush with the window edge (no floating pills). */
@@ -65,7 +72,9 @@ const MIN_W = 200;
 const MAX_W = 720;
 
 export function Dock({ side }: { side: DockSide }) {
-  const views = useApp((s) => s.settings.dock[side]);
+  const dockViews = useApp((s) => s.settings.dock[side]);
+  const agentsOn = useApp((s) => s.settings.agentsBoard);
+  const views = useMemo(() => (agentsOn ? dockViews : dockViews.filter((v) => v !== "agents" && v !== "knowledge")), [dockViews, agentsOn]);
   const active = useApp((s) => (side === "left" ? s.settings.leftView : s.settings.rightView));
   const hidden = useApp((s) => s.panelsHidden);
   const width = useApp((s) => (side === "left" ? s.settings.leftWidth : s.settings.rightWidth));

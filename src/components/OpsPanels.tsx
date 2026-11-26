@@ -40,21 +40,25 @@ import { confirm, prompt, toast } from "@/lib/overlay";
 import { cn } from "@/lib/utils";
 import { useActivePane, useApp } from "@/store/app";
 import { openRunDialog, RunContainerDialog } from "./ContainerRun";
+import { ConnectionsView, FirewallView } from "./ServerPanels";
 import { tr } from "@/lib/i18n";
 
 // ------------------------------------------------------------------ shared
 
-interface Target {
+export interface Target {
   /** Stable per machine: "local" or the SSH session id. */
   key: string;
   sessionId: string | null;
   label: string;
+  /** This computer, and it runs Windows (the server panels speak PowerShell to it). */
+  windows?: boolean;
 }
 
-function useTarget(): { target: Target | null; reason: string } {
+export function useTarget(): { target: Target | null; reason: string } {
   const pane = useActivePane();
   if (!pane) return { target: null, reason: tr("Open a terminal first") };
-  if (pane.kind === "local") return { target: { key: "local", sessionId: null, label: tr("This computer") }, reason: "" };
+  if (pane.kind === "local")
+    return { target: { key: "local", sessionId: null, label: tr("This computer"), windows: navigator.userAgent.includes("Windows") }, reason: "" };
   if (pane.kind === "serial") return { target: null, reason: tr("Serial sessions have no host to inspect") };
   const id = pane.session.sessionId;
   if (pane.status !== "connected" || !id) return { target: null, reason: tr("Waiting for the SSH session to connect…") };
@@ -62,7 +66,7 @@ function useTarget(): { target: Target | null; reason: string } {
 }
 
 /** Load now, then every `ms` while mounted; reloads at once when `key` changes. */
-function usePoll<T>(key: string | null, load: () => Promise<T>, ms: number) {
+export function usePoll<T>(key: string | null, load: () => Promise<T>, ms: number) {
   const [state, setState] = useState<{ key?: string; data?: T; error?: string; loading: boolean }>({ loading: false });
   const loadRef = useRef(load);
   loadRef.current = load;
@@ -109,7 +113,7 @@ async function run(t: Target, tool: Tool, args: string[]): Promise<string> {
 }
 
 /** Type a command line into the active terminal and run it. */
-function typeInto(cmd: string) {
+export function typeInto(cmd: string) {
   const st = useApp.getState();
   const tab = st.tabs.find((x) => x.id === st.activeTabId);
   const pane = tab ? st.panes[tab.activePane] : undefined;
@@ -118,12 +122,12 @@ function typeInto(cmd: string) {
   pane.session.focus();
 }
 
-const copy = (text: string) => {
+export const copy = (text: string) => {
   void navigator.clipboard.writeText(text);
   toast({ kind: "success", title: tr("Copied"), description: text, duration: 1500 });
 };
 
-function fail(title: string, e: unknown) {
+export function fail(title: string, e: unknown) {
   toast({ kind: "error", title, description: String(e).replace(/^Error: /, "") });
 }
 
@@ -136,7 +140,7 @@ function age(iso?: string) {
   return `${Math.round(s / 86400)}d`;
 }
 
-function Header({
+export function Header({
   title,
   icon,
   target,
@@ -165,7 +169,7 @@ function Header({
   );
 }
 
-function Empty({ icon, text, error }: { icon?: React.ReactNode; text: string; error?: boolean }) {
+export function Empty({ icon, text, error }: { icon?: React.ReactNode; text: string; error?: boolean }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-2 p-6 text-center text-[12px] text-muted-foreground [&_svg]:size-5">
       {error ? <AlertCircle className="text-destructive/80" /> : <span className="opacity-60">{icon}</span>}
@@ -174,7 +178,7 @@ function Empty({ icon, text, error }: { icon?: React.ReactNode; text: string; er
   );
 }
 
-function Tabs<T extends string>({
+export function Tabs<T extends string>({
   id,
   value,
   options,
@@ -211,14 +215,14 @@ function Tabs<T extends string>({
   );
 }
 
-const dotCls = {
+export const dotCls = {
   ok: "bg-success",
   warn: "bg-warning",
   bad: "bg-destructive",
   off: "bg-muted-foreground/40",
 } as const;
 
-function Row({
+export function Row({
   dot,
   title,
   detail,
@@ -260,7 +264,7 @@ function Row({
   );
 }
 
-function Act({ tip, onClick, children, danger }: { tip: string; onClick: () => void; children: React.ReactNode; danger?: boolean }) {
+export function Act({ tip, onClick, children, danger }: { tip: string; onClick: () => void; children: React.ReactNode; danger?: boolean }) {
   return (
     <Tooltip content={tip}>
       <button
@@ -321,6 +325,19 @@ function bindLabel(addrs: string[]) {
 
 export function PortsPanel() {
   const { target, reason } = useTarget();
+  const [view, setView] = useState<"listen" | "conns" | "firewall">("listen");
+  const viewTabs = (
+    <Tabs
+      id="net"
+      value={view}
+      onChange={setView}
+      options={[
+        { value: "listen", label: tr("Listening") },
+        { value: "conns", label: tr("Connections") },
+        { value: "firewall", label: tr("Firewall") },
+      ]}
+    />
+  );
   const [query, setQuery] = useState("");
   const [proto, setProto] = useState<"all" | "tcp" | "udp">("tcp");
   const [, bump] = useState(0);
@@ -383,12 +400,18 @@ export function PortsPanel() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <Header title={tr("Ports")} icon={<Network />} target={target} loading={loading} onRefresh={refresh} />
+      <Header title={tr("Network")} icon={<Network />} target={target} loading={loading} onRefresh={refresh} />
       {!target ? (
         <Empty icon={<Network />} text={reason} />
+      ) : view !== "listen" ? (
+        <>
+          <div className="px-2 pb-2">{viewTabs}</div>
+          {view === "conns" ? <ConnectionsView key={target.key} target={target} /> : <FirewallView key={target.key} target={target} />}
+        </>
       ) : (
         <>
           <div className="grid gap-1.5 px-2 pb-2">
+            {viewTabs}
             <SearchField value={query} onChange={setQuery} placeholder={tr("Port, address or process")} />
             <Tabs
               id="ports"

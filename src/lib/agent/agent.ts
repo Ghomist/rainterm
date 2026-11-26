@@ -9,6 +9,9 @@ import { Channel, ipc, type LlmBlock, type LlmConfig, type LlmEvent, type LlmMes
 import type { AgentAutonomy } from "@/lib/settings";
 import type { TermSession } from "@/lib/term-session";
 import { useApp } from "@/store/app";
+
+/** The knowledge base belongs to the (experimental) agents feature. */
+const kbOn = () => useApp.getState().settings.agentsBoard;
 import { proxyUrl } from "@/lib/proxy-url";
 import { atPrompt, isReadOnly, keysToBytes, readScreen, runCommand, truncate } from "./terminal";
 import { tr } from "@/lib/i18n";
@@ -198,7 +201,7 @@ function systemPrompt(s: TermSession, autonomy: AgentAutonomy, title: string, su
     "Work in small, safe steps: look before you change things, prefer read-only checks, never run destructive commands (deleting data, restarting services, force pushes…) unless the user clearly asked for exactly that. Don't type passwords or secrets; if a command asks for one, stop and tell the user.",
     "Keep commands non-interactive and bounded. If a command is still running when the tool returns, read_terminal later or interrupt it with send_keys <C-c> if it is stuck.",
     "Answer in the user's language. Be brief: a few sentences or a short list; code and commands in backticks or fenced blocks. Don't repeat output the user can already see in the terminal — summarize what matters.",
-    kbPrompt(),
+    kbOn() ? kbPrompt() : "",
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -259,13 +262,13 @@ export async function ask(paneId: string, text: string) {
 
   try {
     const config = await llmConfig();
-    await ensureKb();
+    if (kbOn()) await ensureKb();
     for (let turn = 0; turn < 30 && !abort.signal.aborted; turn++) {
       const t = useAgent.getState().threads[paneId];
       const assistant = await callModel(paneId, run, config, {
         system: systemPrompt(s, t.autonomy, pane.title, pane.subtitle),
         messages: t.messages,
-        tools: [...TOOLS, ...kbTools()],
+        tools: kbOn() ? [...TOOLS, ...kbTools()] : TOOLS,
       });
       if (!assistant || abort.signal.aborted) break;
       patchThread(paneId, (th) => ({ messages: [...th.messages, { role: "assistant", content: assistant.blocks }] }));

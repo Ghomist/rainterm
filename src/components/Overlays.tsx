@@ -69,6 +69,11 @@ function DialogHost() {
           <DialogTitle>{opts?.title}</DialogTitle>
           {opts?.message && <DialogDescription className="break-words">{opts.message}</DialogDescription>}
         </DialogHeader>
+        {dialog?.kind === "confirm" && dialog.opts.detail && (
+          <pre className="max-h-48 overflow-auto rounded-md bg-inset px-2.5 py-2 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap break-all text-foreground/85 select-text">
+            {dialog.opts.detail}
+          </pre>
+        )}
         <form
           className="grid gap-3"
           onSubmit={(e) => {

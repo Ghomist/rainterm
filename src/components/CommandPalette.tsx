@@ -139,9 +139,11 @@ export function CommandPalette() {
               )}
 
               <Command.Group heading={tr("Local shells")}>
-                <Item value="agents session multi agent" onSelect={() => run(() => st.openAgents())}>
-                  <Bot /> {tr("Agents")}
-                </Item>
+                {st.settings.agentsBoard && (
+                  <Item value="agents session multi agent" onSelect={() => run(() => st.openAgents())}>
+                    <Bot /> {tr("Agents")}
+                  </Item>
+                )}
                 {shells.map((sh) => (
                   <Item key={sh.id} value={`shell ${sh.name}`} onSelect={() => run(() => st.openLocal(sh))}>
                     <SquareTerminal /> {sh.name}
@@ -245,11 +247,21 @@ export function CommandPalette() {
                 <Item value="quick commands snippets" onSelect={() => run(() => st.toggleView("snippets"))}>
                   <Zap /> {tr("Toggle quick commands")}{" "}<Keys id="snippets" />
                 </Item>
-                <Item value="knowledge base notes kb 知识库" onSelect={() => run(() => st.toggleView("knowledge"))}>
-                  <BookOpen /> {tr("Toggle knowledge base")}
-                </Item>
-                <Item value="new knowledge note" onSelect={() => run(() => newNote())}>
-                  <BookOpen /> {tr("New knowledge note…")}
+                {st.settings.agentsBoard && (
+                  <>
+                    <Item value="knowledge base notes kb 知识库" onSelect={() => run(() => st.toggleView("knowledge"))}>
+                      <BookOpen /> {tr("Toggle knowledge base")}
+                    </Item>
+                    <Item value="new knowledge note" onSelect={() => run(() => newNote())}>
+                      <BookOpen /> {tr("New knowledge note…")}
+                    </Item>
+                  </>
+                )}
+                <Item
+                  value="vertical tabs left top tab position 竖直标签页"
+                  onSelect={() => run(() => void st.updateSettings({ tabPosition: st.settings.tabPosition === "left" ? "top" : "left" }))}
+                >
+                  <PanelLeft /> {st.settings.tabPosition === "left" ? tr("Tabs across the top") : tr("Tabs down the left (vertical tabs)")}
                 </Item>
                 <Item value="check for updates upgrade version" onSelect={() => run(() => void checkForUpdate(false))}>
                   <ArrowUpCircle /> {tr("Check for updates")}

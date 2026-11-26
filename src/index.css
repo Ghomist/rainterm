@@ -285,6 +285,16 @@ html.dark [data-glass="on"] .xterm-screen {
     opacity: 0;
   }
 }
+/* busy without a value (OSC 9;4;3): a segment sliding along a tab's progress bar */
+@keyframes rt-indeterminate {
+  0% {
+    left: -33%;
+  }
+  100% {
+    left: 100%;
+  }
+}
+
 @keyframes shimmer {
   from {
     background-position: 100% 0;

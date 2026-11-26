@@ -2,12 +2,14 @@ import type { LangSetting } from "./i18n";
 import type { HighlightRule } from "./ipc";
 
 /** Tool views that live in the side docks. */
-export type ViewId = "sessions" | "agent" | "files" | "monitor" | "snippets" | "ports" | "containers" | "k8s" | "agents" | "knowledge";
+export type ViewId =
+  | "sessions" | "agent" | "files" | "monitor" | "snippets" | "ports" | "containers" | "k8s" | "agents" | "knowledge"
+  | "services" | "logs" | "cron";
 export type DockSide = "left" | "right";
-export const ALL_VIEWS: ViewId[] = ["sessions", "agent", "files", "monitor", "snippets", "ports", "containers", "k8s", "agents", "knowledge"];
+export const ALL_VIEWS: ViewId[] = ["sessions", "agent", "files", "monitor", "snippets", "ports", "containers", "k8s", "agents", "knowledge", "services", "logs", "cron"];
 export const DEFAULT_DOCK: Record<DockSide, ViewId[]> = {
   left: ["sessions", "agent", "files", "snippets"],
-  right: ["agents", "knowledge", "monitor", "ports", "containers", "k8s"],
+  right: ["agents", "knowledge", "monitor", "services", "logs", "ports", "cron", "containers", "k8s"],
 };
 
 /** A saved outbound proxy; its password (if any) lives in the OS keychain as `proxy:<id>`. */
@@ -59,6 +61,8 @@ export interface McpSettings {
   token: string;
   /** Same meaning as the built-in agent's modes, applied to MCP clients. */
   autonomy: AgentAutonomy;
+  /** Tools switched on / off by the user (missing = the tool's default; see mcp-tools.ts). */
+  tools?: Record<string, boolean>;
 }
 
 export const DEFAULT_MCP: McpSettings = { enabled: false, host: "127.0.0.1", port: 7323, token: "", autonomy: "confirm" };
@@ -99,6 +103,13 @@ export interface Settings {
   sshAutoIntegration: boolean;
   /** Reopen last session's tabs and splits on launch. */
   restoreSession: boolean;
+  /** Experimental multi-agent board (goals → plans → agents). Off: no board, no pool panel. */
+  agentsBoard: boolean;
+  /** Tabs across the title bar, or as a list down the left. */
+  tabPosition: "top" | "left";
+  /** Vertical tab list: width (px) and folded down to icons. */
+  vtabsWidth: number;
+  vtabsCollapsed: boolean;
   /** Completion popup while typing (history + paths); Ctrl+Space opens it manually. */
   suggestions: boolean;
   /** Poll SSH hosts for CPU/memory/disk (runs a read-only command on the server). */
@@ -107,6 +118,8 @@ export interface Settings {
   tabHoverSwitchMs: number;
   /** Ask before closing the window while SSH / serial sessions are connected. */
   confirmClose: boolean;
+  /** Ask before pasting several lines into a program that would run each one. */
+  confirmMultilinePaste: boolean;
   filesWidth: number;
   lineNumbers: boolean;
   highlight: boolean;
@@ -185,10 +198,15 @@ export const DEFAULT_SETTINGS: Settings = {
   mica: false,
   sshAutoIntegration: false,
   restoreSession: true,
+  agentsBoard: false,
+  tabPosition: "top",
+  vtabsWidth: 220,
+  vtabsCollapsed: false,
   suggestions: true,
   monitorRemote: true,
   tabHoverSwitchMs: 300,
   confirmClose: true,
+  confirmMultilinePaste: true,
   filesWidth: 340,
   lineNumbers: true,
   highlight: true,
@@ -258,6 +276,9 @@ export const VIEW_GROUP: Record<ViewId, string> = {
   ports: "ops",
   containers: "ops",
   k8s: "ops",
+  services: "ops",
+  logs: "ops",
+  cron: "ops",
 };
 
 export async function sha256Hex(text: string) {

@@ -7,7 +7,9 @@ import { create } from "zustand";
 import { ipc } from "@/lib/ipc";
 import type { AgentAutonomy } from "@/lib/settings";
 import { confirm } from "@/lib/overlay";
-import { isTermPane, type Pane, type TermPane, useApp } from "@/store/app";
+import { isTermPane, type Pane, type SshProfile, type SplitAt, type TermPane, useApp } from "@/store/app";
+import { enabledMcpTools } from "./mcp-tools";
+import { download, upload } from "./transfers";
 import { atPrompt, isReadOnly, keysToBytes, readScreen, runCommand } from "./agent/terminal";
 
 export const useMcpStatus = create<{ listening: string | null; error: string | null }>(() => ({
@@ -53,13 +55,23 @@ export function useMcpServer() {
     };
   }, [ready, cfg.enabled, cfg.host, cfg.port, cfg.token]);
 
+  // Permissions: the server lists and accepts only the tools switched on.
+  const agentsOn = useApp((s) => s.settings.agentsBoard);
+  const tools = enabledMcpTools(cfg, agentsOn).join(",");
+  useEffect(() => {
+    if (ready) void ipc.mcpSetTools(tools ? tools.split(",") : []).catch(() => {});
+  }, [ready, tools]);
 }
 
 // Tool calls from the server: one listener for the app's lifetime (re-registered on dev
 // hot updates, so it always runs the current code).
 const unlisten = listen<{ id: number; name: string; args: Record<string, unknown> }>("mcp-call", (e) => {
   const { id, name, args } = e.payload;
-  void handle(name, args ?? {}).then(
+  const st = useApp.getState().settings;
+  const run = enabledMcpTools(st.mcp, st.agentsBoard).includes(name)
+    ? handle(name, args ?? {})
+    : Promise.reject(new Error(`${name} is turned off in rainterm (Settings → Agent → MCP server).`));
+  void run.then(
     (text) => ipc.mcpReply(id, { content: [{ type: "text", text }] }),
     (err) => ipc.mcpReply(id, { content: [{ type: "text", text: err instanceof Error ? err.message : String(err) }], isError: true }),
   );
@@ -195,8 +207,18 @@ export async function handle(name: string, args: Record<string, unknown>, modeOv
         const ok = await ask("An MCP client wants to open a terminal", `Open ${label}?`, "Open");
         if (!ok) throw new Error("The user declined.");
       }
+      const split = typeof args.split === "string" ? (args.split as "right" | "left" | "down" | "up") : null;
+      const beside = split ? paneFor(args.beside) : null;
       const before = new Set(Object.keys(useApp.getState().panes));
-      if (profile) await st.connect(profile);
+      if (beside && split) {
+        const side: SplitAt["side"] = split === "down" ? "bottom" : split === "up" ? "top" : split;
+        if (profile) await st.connect(profile, { at: { paneId: beside.id, side } });
+        else {
+          reveal(beside);
+          st.focusPane(beside.id);
+          st.openLocal(shell, { split: side === "left" || side === "right" ? "row" : "col" });
+        }
+      } else if (profile) await st.connect(profile);
       else st.openLocal(shell);
       const id = Object.keys(useApp.getState().panes).find((x) => !before.has(x));
       if (!id) throw new Error("Couldn't open it.");
@@ -216,6 +238,120 @@ export async function handle(name: string, args: Record<string, unknown>, modeOv
       }
       return JSON.stringify({ id, title: p.title, kind: p.kind, host: p.kind === "local" ? "this computer" : p.subtitle });
     }
+
+    case "focus_terminal": {
+      const p = paneFor(args.terminal);
+      reveal(p);
+      useApp.getState().focusPane(p.id);
+      return `Focused ${p.id} (${where(p)}).`;
+    }
+
+    case "close_terminal": {
+      const p = paneFor(args.terminal);
+      reveal(p);
+      if (mode !== "auto") {
+        const ok = await ask("An MCP client wants to close a terminal", `Close ${where(p)}?`, "Close");
+        if (!ok) throw new Error("The user declined.");
+      }
+      useApp.getState().closePane(p.id);
+      return `Closed ${p.id}.`;
+    }
+
+    case "save_session": {
+      const st = useApp.getState();
+      const key = typeof args.session === "string" ? args.session : "";
+      const cur = key ? st.profiles.find((p) => p.id === key || p.name === key) : undefined;
+      if (key && !cur) throw new Error(`No saved session "${key}" — see list_hosts.`);
+      if (cur && cur.kind !== "ssh") throw new Error("Only SSH sessions can be changed this way.");
+      const str = (k: string) => (typeof args[k] === "string" ? String(args[k]).trim() : undefined);
+      const host = str("host") ?? cur?.host;
+      if (!host) throw new Error("A host is needed.");
+      const authKind = str("auth") ?? cur?.auth.kind ?? "auto";
+      const keyPath = str("key_path") ?? (cur?.auth.kind === "key" ? cur.auth.path : "");
+      if (authKind === "key" && !keyPath) throw new Error("auth = key needs key_path.");
+      const next: SshProfile = {
+        kind: "ssh",
+        id: cur?.id ?? crypto.randomUUID(),
+        name: str("name") ?? cur?.name ?? host,
+        group: str("group") ?? cur?.group ?? "",
+        host,
+        port: Number(args.port) || cur?.port || 22,
+        user: str("user") ?? cur?.user ?? "root",
+        auth: authKind === "key" ? { kind: "key", path: keyPath } : { kind: authKind as "auto" | "password" | "agent" },
+        jumpId: cur?.jumpId ?? null,
+        forwards: cur?.forwards ?? [],
+        remember: cur?.remember ?? false,
+        proxy: cur?.proxy ?? null,
+      };
+      if (mode !== "auto") {
+        const what = `${next.name}: ${next.user}@${next.host}:${next.port}${next.group ? ` · ${next.group}` : ""}`;
+        const ok = await ask(cur ? "An MCP client wants to change a saved session" : "An MCP client wants to add a saved session", what, cur ? "Save" : "Add");
+        if (!ok) throw new Error("The user declined.");
+      }
+      await st.saveProfile(next);
+      return JSON.stringify({ id: next.id, name: next.name, host: `${next.user}@${next.host}:${next.port}`, group: next.group || null, updated: !!cur });
+    }
+
+    case "delete_session": {
+      const st = useApp.getState();
+      const key = String(args.session ?? "");
+      const p = st.profiles.find((x) => x.id === key || x.name === key);
+      if (!p) throw new Error(`No saved session "${key}" — see list_hosts.`);
+      const ok = await ask("An MCP client wants to delete a saved session", `Delete “${p.name}” from the sessions list?`, "Delete");
+      if (!ok) throw new Error("The user declined.");
+      await st.deleteProfile(p.id);
+      return `Deleted saved session ${p.name}.`;
+    }
+
+    case "list_files": {
+      const p = paneFor(args.terminal);
+      const target = fsTarget(p);
+      const path = typeof args.path === "string" && args.path ? args.path : await ipc.fsHome(target);
+      const l = await ipc.fsList(target, path);
+      const rows = l.entries.slice(0, 500).map((e) => ({ name: e.name, kind: e.kind, size: e.size }));
+      return JSON.stringify({ path: l.path, entries: rows, more: Math.max(0, l.entries.length - rows.length) }, null, 1);
+    }
+
+    case "upload_files": {
+      const p = paneFor(args.terminal);
+      const sid = sshSession(p);
+      const locals = Array.isArray(args.local_paths) ? args.local_paths.map(String).filter(Boolean) : [];
+      const dir = String(args.remote_dir ?? "");
+      if (!locals.length || !dir) throw new Error("local_paths and remote_dir are needed.");
+      if (mode !== "auto") {
+        const ok = await ask(`An MCP client wants to upload to ${where(p)}`, `${locals.join("\n")}\n→ ${dir}`, "Upload");
+        if (!ok) throw new Error("The user declined.");
+      }
+      if (!(await upload(sid, locals, dir))) throw new Error("The upload failed (details in rainterm's transfers).");
+      return `Uploaded ${locals.length} item(s) to ${dir}.`;
+    }
+
+    case "download_files": {
+      const p = paneFor(args.terminal);
+      const sid = sshSession(p);
+      const remotes = Array.isArray(args.remote_paths) ? args.remote_paths.map(String).filter(Boolean) : [];
+      if (!remotes.length) throw new Error("remote_paths is needed.");
+      const dir = typeof args.local_dir === "string" && args.local_dir ? args.local_dir : await ipc.fsDefaultDownloadDir();
+      if (mode !== "auto") {
+        const ok = await ask(`An MCP client wants to download from ${where(p)}`, `${remotes.join("\n")}\n→ ${dir}`, "Download");
+        if (!ok) throw new Error("The user declined.");
+      }
+      const created = await download(sid, remotes, dir);
+      if (!created) throw new Error("The download failed (details in rainterm's transfers).");
+      return JSON.stringify({ saved: created });
+    }
   }
   throw new Error(`Unknown tool ${name}`);
+}
+
+function fsTarget(p: TermPane) {
+  if (p.kind === "local") return { kind: "local" as const };
+  return { kind: "ssh" as const, sessionId: sshSession(p) };
+}
+
+function sshSession(p: TermPane): string {
+  const sid = p.session.sessionId;
+  if (p.kind !== "ssh") throw new Error(`${p.id} is not an SSH terminal: files move between this computer and an SSH host.`);
+  if (!sid || p.status !== "connected") throw new Error(`Terminal ${p.id} is not connected (${p.status}).`);
+  return sid;
 }

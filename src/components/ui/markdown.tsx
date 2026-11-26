@@ -10,6 +10,7 @@ import { tr } from "@/lib/i18n";
 import { toast } from "@/lib/overlay";
 import { cn } from "@/lib/utils";
 import { IconButton } from "./panel";
+import { useApp } from "@/store/app";
 
 export function RichMarkdown({ text, className, compact }: { text: string; className?: string; compact?: boolean }) {
   return (
@@ -39,6 +40,7 @@ export function RichMarkdown({ text, className, compact }: { text: string; class
 /** Copy, "Save as .md" and "Save to knowledge base" for a piece of markdown. */
 export function MarkdownActions({ text, name, className }: { text: string; name: string; className?: string }) {
   const [copied, setCopied] = useState(false);
+  const kbOn = useApp((s) => s.settings.agentsBoard);
   const copy = async () => {
     await navigator.clipboard.writeText(text);
     setCopied(true);
@@ -64,9 +66,11 @@ export function MarkdownActions({ text, name, className }: { text: string; name:
       <IconButton tip={tr("Export as .md file")} className="size-7" onClick={() => void exportMd()}>
         <Download />
       </IconButton>
-      <IconButton tip={tr("Save to knowledge base")} className="size-7" onClick={() => newNote({ title: name, body: text })}>
-        <BookPlus />
-      </IconButton>
+      {kbOn && (
+        <IconButton tip={tr("Save to knowledge base")} className="size-7" onClick={() => newNote({ title: name, body: text })}>
+          <BookPlus />
+        </IconButton>
+      )}
     </div>
   );
 }

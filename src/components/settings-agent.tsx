@@ -1,6 +1,6 @@
 // Settings → Agent: which model API the built-in agent talks to. The key goes straight
 // into the OS keychain and is only ever read by the backend.
-import { ClipboardCopy, KeyRound, RefreshCw, Zap } from "lucide-react";
+import { Check as CheckIcon, ChevronRight, ClipboardCopy, KeyRound, Minus, RefreshCw, Zap } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { NumberInput, Select, Switch } from "@/components/ui/controls";
@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Channel, ipc, type LlmEvent } from "@/lib/ipc";
 import { toast } from "@/lib/overlay";
 import { newToken, useMcpStatus } from "@/lib/mcp";
+import { MCP_GROUPS, mcpToolOn } from "@/lib/mcp-tools";
 import { proxyUrl, SYSTEM_PROXY } from "@/lib/proxy-url";
 import { type AgentSettings, type McpSettings, proxyLabel } from "@/lib/settings";
 import { cn } from "@/lib/utils";
@@ -204,7 +205,34 @@ export function AgentSection() {
         </div>
       )}
       <McpSection />
+      <AgentsBoardSection />
     </>
+  );
+}
+
+// ------------------------------------------------------------------ agents board (experimental)
+
+function AgentsBoardSection() {
+  const on = useApp((s) => s.settings.agentsBoard);
+  const updateSettings = useApp((s) => s.updateSettings);
+  return (
+    <div className="mt-2 flex items-center justify-between gap-4 border-t border-ov/[0.07] pt-4">
+      <div>
+        <div className="flex items-center gap-1.5 text-[13px] font-medium">
+          {tr("Agents board")}
+          <span className="rounded bg-warning/15 px-1.5 py-px text-[10.5px] font-medium text-warning">{tr("Experimental")}</span>
+        </div>
+        <div className="text-[12px] text-muted-foreground">
+          {tr("Give a goal and several coding agents plan, split, check and report it, sharing a knowledge base. Off: the board, the agent pool and the knowledge base are hidden everywhere and running agents stop; turned back on, they carry on where they were.")}
+        </div>
+      </div>
+      <Switch
+        checked={on}
+        onChange={(v) => {
+          void updateSettings({ agentsBoard: v }).then(() => v && useApp.getState().openAgents());
+        }}
+      />
+    </div>
   );
 }
 
@@ -311,6 +339,9 @@ function McpSection() {
               onChange={(autonomy) => update({ autonomy })}
             />
           </Field>
+          <Field label={tr("Tools clients can use")}>
+            <McpToolTree m={m} update={update} />
+          </Field>
           <Field label={tr("Client setup")} className="min-w-0">
             <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-1.5">
               <div className="group relative min-w-0">
@@ -333,6 +364,84 @@ function McpSection() {
           </Field>
         </>
       )}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------ MCP permissions tree
+
+function Tick({ state, disabled, onClick }: { state: boolean | "mixed"; disabled?: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={state === "mixed" ? "mixed" : state}
+      disabled={disabled}
+      onClick={onClick}
+      className={cn(
+        "flex size-4 shrink-0 items-center justify-center rounded-[4px] border transition-colors",
+        state ? "border-primary bg-primary text-primary-foreground" : "border-ov/25 bg-inset hover:border-ov/40",
+        disabled && "opacity-40",
+      )}
+    >
+      {state === "mixed" ? <Minus className="size-3" strokeWidth={3} /> : state ? <CheckIcon className="size-3" strokeWidth={3} /> : null}
+    </button>
+  );
+}
+
+function McpToolTree({ m, update }: { m: McpSettings; update: (patch: Partial<McpSettings>) => void }) {
+  const agentsOn = useApp((s) => s.settings.agentsBoard);
+  const [open, setOpen] = useState<Record<string, boolean>>({});
+  const set = (names: string[], on: boolean) => {
+    const tools = { ...(m.tools ?? {}) };
+    for (const n of names) tools[n] = on;
+    update({ tools });
+  };
+  return (
+    <div className="overflow-hidden rounded-lg border border-ov/[0.08] bg-inset/40">
+      {MCP_GROUPS.filter((g) => agentsOn || g.id !== "knowledge").map((g, gi) => {
+        const ons = g.tools.filter((t) => mcpToolOn(m, t.name)).length;
+        const state = ons === 0 ? false : ons === g.tools.length ? true : "mixed";
+        const expanded = open[g.id] ?? false;
+        return (
+          <div key={g.id} className={cn(gi > 0 && "border-t border-ov/[0.06]")}>
+            <div className="flex items-center gap-2 px-2 py-1.5">
+              <button
+                type="button"
+                onClick={() => setOpen({ ...open, [g.id]: !expanded })}
+                className="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-ov/[0.06] hover:text-foreground"
+              >
+                <ChevronRight className={cn("size-3.5 transition-transform duration-150", expanded && "rotate-90")} />
+              </button>
+              <Tick state={state} onClick={() => set(g.tools.map((t) => t.name), state !== true)} />
+              <button type="button" onClick={() => setOpen({ ...open, [g.id]: !expanded })} className="min-w-0 flex-1 text-left">
+                <div className="text-[12.5px] font-medium">{tr(g.label)}</div>
+                <div className="truncate text-[11px] text-muted-foreground">
+                  {tr(g.hint)}
+                </div>
+              </button>
+              <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">{`${ons}/${g.tools.length}`}</span>
+            </div>
+            {expanded && (
+              <div className="pb-1.5">
+                {g.tools.map((t) => {
+                  const on = mcpToolOn(m, t.name);
+                  return (
+                    <div key={t.name} className="flex items-center gap-2 py-1 pr-2 pl-[52px]">
+                      <Tick state={on} onClick={() => set([t.name], !on)} />
+                      <span className="text-[12px] text-foreground/90">{tr(t.label)}</span>
+                      <code className="font-mono text-[10.5px] text-muted-foreground/70">{t.name}</code>
+                      {t.writes && (
+                        <span className="ml-auto rounded bg-ov/[0.07] px-1.5 py-px text-[10px] text-muted-foreground">{tr("changes things")}</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

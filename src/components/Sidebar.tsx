@@ -160,6 +160,7 @@ export function SessionsView() {
   const set = useApp((s) => s.set);
   const [query, setQuery] = useState("");
   const [drag, startDrag] = useProfileDrag();
+  const agentsOn = useApp((s) => s.settings.agentsBoard);
 
   const q = query.trim().toLowerCase();
   const sections = useMemo(() => {
@@ -247,7 +248,7 @@ export function SessionsView() {
 
       <ScrollArea className="min-h-0 flex-1" viewportClassName="px-2 pb-3">
         <Group label={tr("Local")} defaultOpen>
-          {(!q || "agents".includes(q) || tr("Agents").toLowerCase().includes(q)) && (
+          {agentsOn && (!q || "agents".includes(q) || tr("Agents").toLowerCase().includes(q)) && (
             <Row icon={<Bot />} label={tr("Agents")} detail={tr("multi-agent board")} onOpen={() => useApp.getState().openAgents()} />
           )}
           {localShells.map((sh) => (

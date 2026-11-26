@@ -1,4 +1,5 @@
 mod commands;
+mod winint;
 mod files;
 mod ops;
 mod proxy;
@@ -212,6 +213,21 @@ async fn ports_list(sessions: S<'_>, session_id: Option<String>) -> CmdResult<Ve
         None => tauri::async_runtime::spawn_blocking(ops::ports_local).await.map_err(anyhow::Error::from).and_then(|r| r),
     }
     .map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+async fn win_admin(kind: String, verb: String, name: String, path: Option<String>) -> CmdResult<()> {
+    ops::win_admin(&kind, &verb, &name, path.as_deref()).await.map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+fn win_open(tool: String) -> CmdResult<()> {
+    ops::win_open(&tool).map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+async fn ops_query(sessions: S<'_>, session_id: Option<String>, query: ops::Query) -> CmdResult<String> {
+    ops::query(&sessions, session_id.as_deref(), &query).await.map_err(|e| format!("{e:#}"))
 }
 
 #[tauri::command]
@@ -637,6 +653,11 @@ async fn mcp_start(app: tauri::AppHandle, host: String, port: u16, token: String
 }
 
 #[tauri::command]
+fn mcp_set_tools(tools: Vec<String>) {
+    mcp::set_tools(tools);
+}
+
+#[tauri::command]
 fn mcp_stop() {
     mcp::stop();
 }
@@ -694,11 +715,48 @@ fn set_window_appearance(window: tauri::WebviewWindow, dark: Option<bool>) {
     let _ = window.set_theme(dark.map(|d| if d { tauri::Theme::Dark } else { tauri::Theme::Light }));
 }
 
+// ------------------------------------------------------------------ launching on a folder
+
+/// The folder this launch was asked to open (`rainterm D:\code`, Explorer's menu).
+#[tauri::command]
+fn launch_folder() -> Option<String> {
+    let args: Vec<String> = std::env::args().collect();
+    winint::folder_from_args(&args, &std::env::current_dir().unwrap_or_default())
+}
+
+#[tauri::command]
+fn win_integration_status() -> bool {
+    winint::installed()
+}
+
+#[tauri::command]
+async fn win_integration_set(on: bool, label: String) -> CmdResult<()> {
+    tauri::async_runtime::spawn_blocking(move || winint::set(on, &label)).await.map_err(err)?.map_err(err)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // One TLS backend (ring) for every HTTPS client: the model APIs and the updater.
     let _ = rustls::crypto::ring::default_provider().install_default();
-    tauri::Builder::default()
+    #[allow(unused_mut)]
+    let mut builder = tauri::Builder::default();
+    // One window: launching again (Explorer's "Open in rainterm", `rainterm .`) opens a tab in
+    // the running app. Not in dev builds, so a dev copy can run beside the installed one.
+    #[cfg(all(not(debug_assertions), desktop))]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+            use tauri::{Emitter, Manager};
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.unminimize();
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+            if let Some(folder) = winint::folder_from_args(&argv, std::path::Path::new(&cwd)) {
+                let _ = app.emit("open-folder", folder);
+            }
+        }));
+    }
+    builder
         .plugin(tauri_plugin_opener::init())
         // Updates: signed installers from GitHub releases (latest.json), then a restart.
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -756,6 +814,9 @@ pub fn run() {
             commands_remote,
             ports_list,
             ops_run,
+            ops_query,
+            win_admin,
+            win_open,
             ssh_forward_add,
             ssh_forward_stop,
             ssh_ping,
@@ -764,6 +825,10 @@ pub fn run() {
             backdrop_import,
             llm_chat,
             mcp_start,
+            launch_folder,
+            win_integration_status,
+            win_integration_set,
+            mcp_set_tools,
             mcp_stop,
             mcp_status,
             mcp_reply,

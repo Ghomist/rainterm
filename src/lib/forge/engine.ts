@@ -70,11 +70,15 @@ export class Engine {
 
   /** Load the board and start scheduling (first agents tab opened). */
   start() {
-    this.started ??= (async () => {
-      await this.store.load();
+    if (this.started) return this.started;
+    this.halted = false;
+    this.started = (async () => {
+      const first = !this.loaded;
+      if (first) await this.store.load();
+      this.loaded = true;
       this.recover();
       // probing can take minutes (npx downloads adapters): never block on it
-      if (this.store.fresh)
+      if (first && this.store.fresh)
         void this.probeAll().then(() => {
           if (this.config.peers.length) return; // set up by hand meanwhile
           this.seedPeers();
@@ -97,6 +101,24 @@ export class Engine {
     clearInterval(this.superviseTimer);
   }
 
+  private loaded = false;
+  /** Switched off (agents disabled in settings): nothing new starts, running work is let go. */
+  private halted = false;
+  private unwatch?: () => void;
+
+  /** The agents feature was turned off: stop scheduling and cancel what runs. Interrupted
+   *  steps aren't failures: they go back in the queue when it's turned on again. */
+  async halt() {
+    if (!this.started) return;
+    await this.started.catch(() => {});
+    this.halted = true;
+    this.stop();
+    this.unwatch?.();
+    this.unwatch = undefined;
+    this.started = null;
+    await Promise.all([...this.active.keys()].map((id) => this.cancelRun(id)));
+  }
+
   // ------------------------------------------------------------------ telling the user
 
   private say(goal: string, text: string) {
@@ -106,7 +128,7 @@ export class Engine {
   /** Whatever path a goal takes, finishing posts its report and getting stuck says why. */
   private watchGoals() {
     const seen = new Map(Object.values(useForge.getState().goals).map((g) => [g.id, g.status]));
-    useForge.subscribe((st) => {
+    this.unwatch = useForge.subscribe((st) => {
       for (const g of Object.values(st.goals)) {
         const prev = seen.get(g.id);
         if (prev === g.status) continue;
@@ -1264,7 +1286,7 @@ Reply with only a JSON block: {"on_track": true|false, "reason": "one sentence",
         validate: (j) =>
           !Array.isArray(j?.features) && !Array.isArray(j?.questions) ? 'It needs a "features" array (or "questions" when the goal is unclear).' : null,
       });
-      if (this.store.goals.get(g.id)?.status !== "planning") return;
+      if (this.halted || this.store.goals.get(g.id)?.status !== "planning") return;
       if (out.error || !out.json) {
         // the agent couldn't be reached (limit, sign-in, network): another one plans it, uncounted
         if (out.infra && ++fails.infra <= 6) return;
@@ -1569,6 +1591,7 @@ Reply with only a JSON block: {"on_track": true|false, "reason": "one sentence",
             : null,
     });
     attempt.run = out.run.id;
+    if (this.halted) return; // switched off mid-way: picked up again (uncounted) when it's back on
     if (this.stopped(s.id)) {
       // keep the user's status (cancelled / skipped); just record how the attempt ended
       const cur = this.store.stories.get(s.id);
@@ -1663,7 +1686,7 @@ Reply with only a JSON block: {"on_track": true|false, "reason": "one sentence",
       for (let i = 0; i < 3 && !verdict && tried.length < 12; i++) {
         // someone other than the worker checks it, when there is anyone else
         const vpick = await this.acquire("verify", vt, { story: s, exclude: [attempt.peer, ...tried] }, this.priOf(s.goal) + 0.5, () => this.stopped(s.id));
-        if (!vpick || this.stopped(s.id)) {
+        if (!vpick || this.stopped(s.id) || this.halted) {
           vpick?.release();
           return;
         }
@@ -1687,7 +1710,7 @@ Reply with only a JSON block: {"on_track": true|false, "reason": "one sentence",
             evidence: isGit ? undefined : h.evidence.map((e) => `- ${e}`).join("\n"),
           }),
         });
-        if (this.stopped(s.id)) return;
+        if (this.stopped(s.id) || this.halted) return;
         if (out.json && typeof out.json.pass === "boolean") verdict = { pass: out.json.pass, reason: String(out.json.reason ?? ""), evidence: [] };
         else if (out.infra) i--; // it never got to look: doesn't count (bounded by the cool-down and `tried`)
       }

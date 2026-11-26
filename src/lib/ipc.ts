@@ -20,6 +20,8 @@ export interface ShellSpec {
   name: string;
   program: string;
   args: string[];
+  /** Start in this folder (default: home). */
+  cwd?: string | null;
 }
 
 export type SshAuth =
@@ -332,6 +334,8 @@ export const ipc = {
   commandsLocal: (shellId: string, program: string) => invoke<string[]>("commands_local", { shellId, program }),
   commandsRemote: (sessionId: string) => invoke<string[]>("commands_remote", { sessionId }),
   portsList: (sessionId: string | null) => invoke<PortEntry[]>("ports_list", { sessionId }),
+  /** Fixed read-only queries for the server panels (see src-tauri/src/ops.rs `Query`). */
+  opsQuery: (sessionId: string | null, query: { kind: string } & Record<string, unknown>) => invoke<string>("ops_query", { sessionId, query }),
   opsRun: (sessionId: string | null, tool: "docker" | "podman" | "kubectl", args: string[]) =>
     invoke<RunOutput>("ops_run", { sessionId, tool, args }),
   sshForwardAdd: (sessionId: string, localPort: number, remoteHost: string, remotePort: number) =>
@@ -343,6 +347,15 @@ export const ipc = {
     invoke<void>("llm_chat", { id, config, request, onEvent }),
   llmCancel: (id: string) => invoke<boolean>("llm_cancel", { id }),
   mcpStart: (host: string, port: number, token: string) => invoke<string>("mcp_start", { host, port, token }),
+  mcpSetTools: (tools: string[]) => invoke<void>("mcp_set_tools", { tools }),
+  /** The folder this launch was asked to open (`rainterm D:\\code`, Explorer's menu). */
+  launchFolder: () => invoke<string | null>("launch_folder"),
+  winIntegrationStatus: () => invoke<boolean>("win_integration_status"),
+  winIntegrationSet: (on: boolean, label: string) => invoke<void>("win_integration_set", { on, label }),
+  /** A Windows change that needs an administrator (UAC): services and scheduled tasks. */
+  winAdmin: (kind: "service" | "task", verb: string, name: string, path?: string) =>
+    invoke<void>("win_admin", { kind, verb, name, path: path ?? null }),
+  winOpen: (tool: "services.msc" | "eventvwr.msc" | "wf.msc" | "taskschd.msc" | "resmon") => invoke<void>("win_open", { tool }),
   mcpStop: () => invoke<void>("mcp_stop"),
   mcpStatus: () => invoke<string | null>("mcp_status"),
   mcpReply: (id: number, result: unknown) => invoke<void>("mcp_reply", { id, result }),

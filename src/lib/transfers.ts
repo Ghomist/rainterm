@@ -86,9 +86,11 @@ export async function download(sessionId: string, remotes: string[], localDir: s
       description: localDir,
       action: created[0] ? { label: "Show in folder", run: () => void revealItemInDir(created[0]) } : undefined,
     });
+    return created;
   } catch (e) {
     finish(id, e);
     if (!String(e).includes("cancelled")) toast({ kind: "error", title: tr("Download failed: {0}", { 0: label }), description: String(e) });
+    return null;
   }
 }
 

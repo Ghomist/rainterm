@@ -5,6 +5,8 @@ import { create } from "zustand";
 export interface ConfirmOpts {
   title: string;
   message?: string;
+  /** Shown as-is in a monospace block (a command, pasted text…). */
+  detail?: string;
   confirmLabel?: string;
   danger?: boolean;
 }
