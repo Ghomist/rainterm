@@ -6,6 +6,7 @@ import {
   Play,
   Plus,
   Radio,
+  Rocket,
   TextCursorInput,
   Trash2,
   Zap,
@@ -33,7 +34,7 @@ import { Input } from "@/components/ui/input";
 import { IconButton, PanelHeader, SearchField } from "@/components/ui/panel";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip } from "@/components/ui/tooltip";
-import { confirm } from "@/lib/overlay";
+import { confirm, toast } from "@/lib/overlay";
 import { type Snippet, snippetVars, useSnippets } from "@/lib/snippets";
 import { cn } from "@/lib/utils";
 import { useActivePane, useApp } from "@/store/app";
@@ -131,6 +132,23 @@ function SnippetRow({ s, onEdit }: { s: Snippet; onEdit: () => void }) {
   };
   const firstLine = s.command.split(/\r?\n/)[0];
   const lines = s.command.split(/\r?\n/).filter(Boolean).length;
+  // The saved SSH session behind the active terminal: offer to run this on each connect.
+  const pane = useActivePane();
+  const profile = useApp((x) => x.profiles.find((p) => p.id === pane?.profileId && p.kind === "ssh"));
+  const body = s.command.replace(/\r\n?/g, "\n").replace(/\n+$/, "");
+  const onStartup = profile?.kind === "ssh" && !!body && (profile.startup ?? "").split("\n").some((l) => l === body.split("\n")[0]) && (profile.startup ?? "").includes(body);
+  const toggleStartup = () => {
+    if (profile?.kind !== "ssh") return;
+    const cur = (profile.startup ?? "").replace(/\s+$/, "");
+    const next = onStartup ? cur.replace(body, "").replace(/\n{2,}/g, "\n").trim() : cur ? `${cur}\n${body}` : body;
+    void useApp.getState().saveProfile({ ...profile, startup: next });
+    toast({
+      kind: "success",
+      title: onStartup
+        ? tr("Removed from {0}'s startup commands", { 0: profile.name })
+        : tr("Runs each time you connect to {0}", { 0: profile.name }),
+    });
+  };
 
   return (
     <ContextMenu>
@@ -208,6 +226,11 @@ function SnippetRow({ s, onEdit }: { s: Snippet; onEdit: () => void }) {
         <ContextMenuItem onSelect={() => void navigator.clipboard.writeText(s.command)}>
           <ClipboardCopy /> {tr("Copy command")}
         </ContextMenuItem>
+        {profile && (
+          <ContextMenuItem onSelect={toggleStartup}>
+            <Rocket /> {onStartup ? tr("Don't run on connect to {0}", { 0: profile.name }) : tr("Run on connect to {0}", { 0: profile.name })}
+          </ContextMenuItem>
+        )}
         <ContextMenuSeparator />
         <ContextMenuItem onSelect={onEdit}>
           <Pencil /> {tr("Edit…")}

@@ -10,7 +10,7 @@ import { toast } from "@/lib/overlay";
 import { newToken, useMcpStatus } from "@/lib/mcp";
 import { MCP_GROUPS, mcpToolOn } from "@/lib/mcp-tools";
 import { proxyUrl, SYSTEM_PROXY } from "@/lib/proxy-url";
-import { type AgentSettings, type McpSettings, proxyLabel } from "@/lib/settings";
+import { type AgentAutonomy, type AgentSettings, type McpSettings, proxyLabel } from "@/lib/settings";
 import { cn } from "@/lib/utils";
 import { useApp } from "@/store/app";
 import { Field, Segmented } from "./dialogs";
@@ -178,14 +178,10 @@ export function AgentSection() {
         </Field>
       </div>
       <Field label={tr("Default mode for new conversations")}>
-        <Segmented
+        <AutonomyPicker
           value={a.autonomy}
-          options={[
-            { value: "suggest", label: tr("Suggest (types, you run)") },
-            { value: "confirm", label: tr("Confirm each command") },
-            { value: "auto", label: tr("Auto (read-only on its own)") },
-          ]}
           onChange={(autonomy) => update({ autonomy })}
+          fullWarning="New conversations run every command without asking. Use it where mistakes are cheap."
         />
       </Field>
       <div className="flex items-center gap-2">
@@ -329,14 +325,10 @@ function McpSection() {
             </div>
           </Field>
           <Field label={tr("What MCP clients may do")}>
-            <Segmented
+            <AutonomyPicker
               value={m.autonomy}
-              options={[
-                { value: "suggest", label: tr("Suggest (types, you run)") },
-                { value: "confirm", label: tr("Confirm each command") },
-                { value: "auto", label: tr("Auto (read-only on its own)") },
-              ]}
               onChange={(autonomy) => update({ autonomy })}
+              fullWarning="MCP clients can run anything in your terminals, open, close and delete sessions without asking."
             />
           </Field>
           <Field label={tr("Tools clients can use")}>
@@ -443,5 +435,33 @@ function McpToolTree({ m, update }: { m: McpSettings; update: (patch: Partial<Mc
         );
       })}
     </div>
+  );
+}
+
+const AUTONOMY: { value: AgentAutonomy; label: string; hint: string }[] = [
+  { value: "suggest", label: "Suggest", hint: "Only types commands at the prompt — you press Enter" },
+  { value: "confirm", label: "Confirm", hint: "Asks before running each command" },
+  { value: "auto", label: "Auto", hint: "Runs read-only commands on its own; asks for anything else" },
+  { value: "full", label: "Full auto", hint: "Runs everything without asking" },
+];
+
+/** The four approval modes, with a line on what the chosen one does. */
+function AutonomyPicker({
+  value,
+  onChange,
+  fullWarning,
+}: {
+  value: AgentAutonomy;
+  onChange: (v: AgentAutonomy) => void;
+  fullWarning: string;
+}) {
+  const cur = AUTONOMY.find((x) => x.value === value) ?? AUTONOMY[1];
+  return (
+    <>
+      <Segmented value={value} options={AUTONOMY.map((x) => ({ value: x.value, label: tr(x.label) }))} onChange={onChange} />
+      <span className={cn("text-[11.5px]", value === "full" ? "text-destructive" : "text-muted-foreground")}>
+        {value === "full" ? tr(fullWarning) : tr(cur.hint)}
+      </span>
+    </>
   );
 }

@@ -18,6 +18,7 @@ import { allGroups, type Profile, type SerialProfile, type SshProfile, useApp } 
 import { Tooltip } from "@/components/ui/tooltip";
 import { ProxyEditorDialog, ProxyPicker } from "./proxy";
 import { tr } from "@/lib/i18n";
+import { useSnippets } from "@/lib/snippets";
 
 export function Dialogs() {
   return (
@@ -325,7 +326,47 @@ function SshFields({
       <Field label={tr("Port forwarding")}>
         <ForwardsEditor value={p.forwards} onChange={(forwards) => setP({ ...p, forwards })} />
       </Field>
+      <StartupField value={p.startup ?? ""} onChange={(startup) => setP({ ...p, startup })} />
     </>
+  );
+}
+
+/** Commands typed after connecting — written here, or picked from the quick commands. */
+function StartupField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const snippets = useSnippets((s) => s.snippets);
+  const load = useSnippets((s) => s.load);
+  useEffect(() => void load(), [load]);
+  const add = (cmd: string) => {
+    const base = value.replace(/\s+$/, "");
+    onChange(base ? `${base}\n${cmd}` : cmd);
+  };
+  return (
+    <div className="grid gap-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <Label>{tr("Startup commands")}</Label>
+        {snippets.length > 0 && (
+          <Select<string | null>
+            size="sm"
+            className="h-6 w-auto max-w-[200px] text-[11.5px]"
+            value={null}
+            placeholder={tr("Add a quick command…")}
+            onChange={(id) => {
+              const s = snippets.find((x) => x.id === id);
+              if (s) add(s.command.replace(/\r\n?/g, "\n").replace(/\n+$/, ""));
+            }}
+            options={snippets.map((s) => ({ value: s.id, label: s.name || s.command, hint: s.group || undefined }))}
+          />
+        )}
+      </div>
+      <textarea
+        className="min-h-[54px] w-full resize-y rounded-md border border-input bg-inset px-2.5 py-1.5 font-mono text-[12px] leading-relaxed outline-none transition-[border-color,box-shadow] duration-150 placeholder:text-muted-foreground/50 focus-visible:border-primary/60 focus-visible:ring-2 focus-visible:ring-ring/40"
+        rows={2}
+        spellCheck={false}
+        placeholder={tr("Run after connecting, one per line — e.g. cd /srv/app")}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    </div>
   );
 }
 

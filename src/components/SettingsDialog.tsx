@@ -37,6 +37,12 @@ export function SettingsDialog() {
   const open = useApp((s) => s.settingsOpen);
   const set = useApp((s) => s.set);
   const [section, setSection] = useState<Section>("appearance");
+  const want = useApp((s) => s.settingsSection);
+  useEffect(() => {
+    if (!open || !want) return;
+    if (sections.some((s) => s.id === want)) setSection(want as Section);
+    set({ settingsSection: null });
+  }, [open, want, set]);
 
   return (
     <Dialog open={open} onOpenChange={(o) => set({ settingsOpen: o })}>

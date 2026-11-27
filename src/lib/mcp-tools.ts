@@ -12,7 +12,7 @@ export interface McpTool {
 }
 
 export interface McpToolGroup {
-  id: "terminal" | "sessions" | "files" | "knowledge";
+  id: "terminal" | "sessions" | "snippets" | "files" | "knowledge";
   label: string;
   hint: string;
   tools: McpTool[];
@@ -41,6 +41,17 @@ export const MCP_GROUPS: McpToolGroup[] = [
       { name: "close_terminal", label: "Close terminals", writes: true, default: true },
       { name: "save_session", label: "Add / edit saved sessions", writes: true, default: false },
       { name: "delete_session", label: "Delete saved sessions", writes: true, default: false },
+    ],
+  },
+  {
+    id: "snippets",
+    label: "Quick commands",
+    hint: "Use the saved quick commands, add and edit them",
+    tools: [
+      { name: "list_snippets", label: "List quick commands", default: true },
+      { name: "run_snippet", label: "Run quick commands", writes: true, default: true },
+      { name: "save_snippet", label: "Add / edit quick commands", writes: true, default: true },
+      { name: "delete_snippet", label: "Delete quick commands", writes: true, default: false },
     ],
   },
   {

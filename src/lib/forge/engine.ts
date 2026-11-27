@@ -1077,7 +1077,7 @@ Reply with only a JSON block: {"on_track": true|false, "reason": "one sentence",
   }
 
   private terminalMode(): AgentAutonomy {
-    return this.config.autonomy === "cautious" ? "confirm" : "auto";
+    return this.config.autonomy === "cautious" ? "confirm" : this.config.autonomy === "hands-off" ? "full" : "auto";
   }
 
   // biome-ignore lint/suspicious/noExplicitAny: ACP tool call payload

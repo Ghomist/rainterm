@@ -396,13 +396,47 @@ fn tools(kb_only: bool) -> Vec<Value> {
                 "user": { "type": "string" },
                 "group": { "type": "string", "description": "Group (folder) in the sessions list; empty = ungrouped." },
                 "auth": { "type": "string", "enum": ["auto", "password", "key", "agent"] },
-                "key_path": { "type": "string", "description": "Private key file, for auth = key." }
+                "key_path": { "type": "string", "description": "Private key file, for auth = key." },
+                "startup": { "type": "string", "description": "Commands typed after every connect, one per line (e.g. `cd /srv/app`). Empty string clears them." }
             }, "additionalProperties": false }
         }),
         json!({
             "name": "delete_session",
-            "description": "Remove a saved session from the sessions list (always asks the user).",
+            "description": "Remove a saved session from the sessions list (asks the user unless rainterm is in Full auto mode).",
             "inputSchema": { "type": "object", "properties": { "session": { "type": "string", "description": "Session id or name." } }, "required": ["session"], "additionalProperties": false },
+            "annotations": { "destructiveHint": true }
+        }),
+        json!({
+            "name": "list_snippets",
+            "description": "List the user's saved quick commands (snippets): id, name, group, the command (may span lines; `{{name}}`, `{{name:default}}` and `{{name|a|b}}` are blanks to fill), whether it runs or only types itself in, and its blanks.",
+            "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false },
+            "annotations": { "readOnlyHint": true }
+        }),
+        json!({
+            "name": "run_snippet",
+            "description": "Run one of the user's quick commands in a terminal, visibly, and return the output and exit code (each line in turn; stops at the first failure). Fill its blanks with `values`. A quick command that isn't set to run is only typed at the prompt. The user may have to approve it.",
+            "inputSchema": { "type": "object", "properties": {
+                "snippet": { "type": "string", "description": "Quick command id or name (see list_snippets)." },
+                "terminal": term,
+                "values": { "type": "object", "additionalProperties": { "type": "string" }, "description": "Values for its blanks, by name." },
+                "timeout_seconds": { "type": "number", "description": "Per line, default 30, max 600." }
+            }, "required": ["snippet"], "additionalProperties": false }
+        }),
+        json!({
+            "name": "save_snippet",
+            "description": "Add a quick command to the user's list, or change one (pass `snippet`, its id or name). Blanks: `{{name}}`, `{{name:default}}`, `{{name|choice|choice}}`. The user may have to approve it.",
+            "inputSchema": { "type": "object", "properties": {
+                "snippet": { "type": "string", "description": "Existing quick command id or name to change (omit to add one)." },
+                "name": { "type": "string" },
+                "command": { "type": "string", "description": "One or more lines." },
+                "group": { "type": "string" },
+                "run": { "type": "boolean", "description": "Press Enter after it (default true); false = only type it in." }
+            }, "additionalProperties": false }
+        }),
+        json!({
+            "name": "delete_snippet",
+            "description": "Remove a quick command from the user's list (asks the user unless rainterm is in Full auto mode).",
+            "inputSchema": { "type": "object", "properties": { "snippet": { "type": "string", "description": "Quick command id or name." } }, "required": ["snippet"], "additionalProperties": false },
             "annotations": { "destructiveHint": true }
         }),
         json!({

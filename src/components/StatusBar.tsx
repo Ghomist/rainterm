@@ -1,5 +1,5 @@
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import { Circle, Hash, Highlighter, Radio } from "lucide-react";
+import { Circle, Hash, Highlighter, Plug, Radio } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -8,6 +8,7 @@ import { useActiveMachine } from "./MonitorPanel";
 import { Latency } from "./Latency";
 import { StatusDot } from "./StatusDot";
 import { tr } from "@/lib/i18n";
+import { useMcpStatus } from "@/lib/mcp";
 
 const label = {
   connecting: "Connecting",
@@ -97,8 +98,43 @@ export function StatusBar() {
       ) : (
         <span className="flex-1 px-1">{tr("Ready")}</span>
       )}
+      <McpChip />
       <MonitorChip />
     </footer>
+  );
+}
+
+/** The MCP server is on: where it listens, its mode, and what a client is doing right now. */
+function McpChip() {
+  const listening = useMcpStatus((s) => s.listening);
+  const error = useMcpStatus((s) => s.error);
+  const running = useMcpStatus((s) => s.running);
+  const enabled = useApp((s) => s.settings.mcp.enabled);
+  const full = useApp((s) => s.settings.mcp.autonomy === "full");
+  const set = useApp((s) => s.set);
+  if (!enabled) return null;
+  const busy = running.length > 0;
+  const tip = error
+    ? tr("MCP server failed: {0}", { 0: error })
+    : busy
+      ? tr("An MCP client is using {0}", { 0: running.join(", ") })
+      : tr("MCP server on {0}{1}", { 0: listening ?? "…", 1: full ? ` · ${tr("Full auto (never asks)")}` : "" });
+  return (
+    <Tooltip content={tip} side="top">
+      <button
+        type="button"
+        onClick={() => set({ settingsOpen: true, settingsSection: "agent" })}
+        className={cn(
+          "ml-1 flex h-[18px] items-center gap-1 rounded px-1.5 transition-colors hover:bg-ov/[0.07] hover:text-foreground [&_svg]:size-3",
+          error ? "text-destructive" : full ? "text-destructive/90" : busy ? "text-primary" : "",
+        )}
+      >
+        <Plug className={cn(busy && "animate-pulse")} />
+        {tr("MCP")}
+        {full && !error && <span className="rounded bg-destructive/12 px-1 text-[10px] font-medium">{tr("Full auto")}</span>}
+        {busy && <span className="max-w-[120px] truncate font-mono text-[10.5px]">{running[running.length - 1]}</span>}
+      </button>
+    </Tooltip>
   );
 }
 

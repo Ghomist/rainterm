@@ -2,7 +2,8 @@
 // pane (recent screen, command blocks) and acts by typing into it. The loop:
 //   user text → model (streamed) → tool calls → run them in the pane → results → model …
 // Autonomy: "suggest" only types commands for you to run; "confirm" asks before every
-// command; "auto" runs read-only commands straight away and asks for anything else.
+// command; "auto" runs read-only commands straight away and asks for anything else;
+// "full" never asks.
 // Typing in the terminal yourself interrupts it.
 import { create, type StoreApi, type UseBoundStore } from "zustand";
 import { Channel, ipc, type LlmBlock, type LlmConfig, type LlmEvent, type LlmMessage, type LlmToolDef } from "@/lib/ipc";
@@ -194,6 +195,7 @@ function systemPrompt(s: TermSession, autonomy: AgentAutonomy, title: string, su
       "Mode SUGGEST: run_command only types the command at the prompt without running it; the user decides. Prefer finishing with one well-chosen command typed for them, and explain briefly what it does. read_terminal is fine.",
     confirm: "Mode CONFIRM: every run_command / send_keys is shown to the user to approve first. If one is declined, adapt or ask.",
     auto: "Mode AUTO: read-only commands run straight away; anything that changes something is shown to the user to approve first.",
+    full: "Mode FULL AUTO: everything you run goes straight to the terminal without asking. The user trusts you here — still avoid destructive commands they didn't ask for, and say what you changed.",
   }[autonomy];
   return [
     `You are the assistant built into rainterm, a terminal emulator. You work inside one terminal pane, "${title}": ${where}. You see what the user sees there and act by typing into it with your tools; the user watches every keystroke and can interrupt you by typing.`,
@@ -434,7 +436,7 @@ async function runTool(
     // Keys go to whatever is running (they could confirm a prompt): ask, except for plain
     // "get out" keys in auto mode.
     const harmless = /^(?:<c-c>|<esc>|q)$/i.test(keys.trim());
-    if (autonomy !== "auto" || !harmless) {
+    if (autonomy !== "full" && (autonomy !== "auto" || !harmless)) {
       const a = await approve(paneId, stepId, `keys: ${keys}`);
       if (!a.ok) {
         patchStep(paneId, stepId, { state: "declined" });
@@ -467,7 +469,7 @@ async function runTool(
       patchStep(paneId, stepId, { state: "done", result: "Typed at the prompt for you to review." });
       return res("Typed at the prompt; the user will review and run it themselves. Don't run anything else — briefly say what it does and stop.");
     }
-    if (autonomy === "confirm" || !isReadOnly(command)) {
+    if (autonomy === "confirm" || (autonomy === "auto" && !isReadOnly(command))) {
       const a = await approve(paneId, stepId, command);
       if (!a.ok) {
         patchStep(paneId, stepId, { state: "declined" });

@@ -26,7 +26,7 @@ export interface ProxyDef {
 export const proxyLabel = (p: ProxyDef) => p.name || `${p.kind === "http" ? "HTTP" : "SOCKS5"} ${p.host}:${p.port}`;
 
 /** How much the built-in agent may do on its own. */
-export type AgentAutonomy = "suggest" | "confirm" | "auto";
+export type AgentAutonomy = "suggest" | "confirm" | "auto" | "full";
 
 export interface AgentSettings {
   /** Wire format: OpenAI-compatible Chat Completions, or Anthropic Messages. */

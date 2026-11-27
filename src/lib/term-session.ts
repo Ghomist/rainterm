@@ -309,6 +309,30 @@ export class TermSession {
 
   /** When output was last written to the terminal (performance.now()). */
   lastOutputAt = 0;
+
+  /**
+   * Type commands once the shell is ready: at a prompt (shell integration), or after its
+   * first output went quiet (the login banner and prompt are drawn). Each line runs.
+   */
+  async runWhenReady(commands: string, maxMs = 10000): Promise<boolean> {
+    const lines = commands.replace(/\r\n?/g, "\n").split("\n").map((l) => l.trimEnd()).filter((l) => l.trim());
+    if (!lines.length) return false;
+    const start = performance.now();
+    for (;;) {
+      await new Promise((r) => setTimeout(r, 120));
+      if (!this.alive) return false;
+      const now = performance.now();
+      if (now - start > maxMs) break;
+      if (this.term.buffer.active.type !== "normal") continue;
+      // the new shell has to have drawn something first (its banner / prompt)
+      if (this.lastOutputAt <= start) continue;
+      if (this.blocks.inputState() !== null && now - this.lastOutputAt > 150) break;
+      if (now - this.lastOutputAt > 700) break;
+    }
+    if (!this.alive) return false;
+    this.input(`${lines.join("\r")}\r`, true);
+    return true;
+  }
   private keyListeners = new Set<(data: string) => void>();
 
   /** Keystrokes from the person at the keyboard (not agent / snippet input). */

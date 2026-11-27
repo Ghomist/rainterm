@@ -53,6 +53,8 @@ export interface SshProfile extends ProfileBase {
   remember?: boolean;
   /** Proxy: a saved proxy's id, "direct" for none, or empty/null for the global default. */
   proxy?: string | null;
+  /** Commands typed once the shell is up (every connect, reconnects too), one per line. */
+  startup?: string;
 }
 
 export interface SerialProfile extends ProfileBase {
@@ -175,6 +177,8 @@ interface AppState {
   panelsHidden: boolean;
   paletteOpen: boolean;
   settingsOpen: boolean;
+  /** Section Settings opens at (cleared once shown). */
+  settingsSection?: string | null;
   searchOpen: boolean;
   broadcast: BroadcastMode;
   locked: boolean;
@@ -445,6 +449,10 @@ export const useApp: UseBoundStore<StoreApi<AppState>> =
         }
         patchPane(paneId, { status: "connected", error: undefined, awaitingSecret: false });
         if (get().settings.autoLog && !pane.logPath) void get().toggleLog(paneId);
+        {
+          const prof = get().profiles.find((p) => p.id === pane.profileId);
+          if (prof?.kind === "ssh" && prof.startup?.trim()) void pane.session.runWhenReady(prof.startup);
+        }
         break;
       case "hostKeyPrompt":
         showHostKey({ paneId, ...ev });

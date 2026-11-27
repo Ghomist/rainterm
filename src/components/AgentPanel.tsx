@@ -9,6 +9,7 @@ import {
   Hand,
   Keyboard,
   Plus,
+  Rocket,
   ShieldCheck,
   Sparkles,
   SquareTerminal,
@@ -38,6 +39,7 @@ const MODES: { id: AgentAutonomy; label: string; tip: string; icon: React.ReactN
   { id: "suggest", label: "Suggest", tip: "Only types commands at the prompt — you press Enter", icon: <Keyboard /> },
   { id: "confirm", label: "Confirm", tip: "Asks before running each command", icon: <ShieldCheck /> },
   { id: "auto", label: "Auto", tip: "Runs read-only commands on its own; asks for anything else", icon: <Zap /> },
+  { id: "full", label: "Full auto", tip: "Runs everything without asking", icon: <Rocket /> },
 ];
 
 /** Ctrl+I focuses this (App dispatches "agent-focus"). */
@@ -270,7 +272,7 @@ function ModePicker({ paneId, value }: { paneId: string; value: AgentAutonomy })
         onClick={() => setAutonomy(paneId, MODES[(i + 1) % MODES.length].id)}
         className={cn(
           "press flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-[11px] font-medium [&_svg]:size-3.5",
-          value === "auto" ? "bg-warning/12 text-warning" : value === "suggest" ? "bg-ov/[0.07] text-muted-foreground" : "bg-primary/12 text-primary",
+          value === "full" ? "bg-destructive/12 text-destructive" : value === "auto" ? "bg-warning/12 text-warning" : value === "suggest" ? "bg-ov/[0.07] text-muted-foreground" : "bg-primary/12 text-primary",
         )}
       >
         {m.icon}
