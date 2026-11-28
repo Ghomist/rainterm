@@ -14,6 +14,7 @@ pub mod local;
 mod posix_integration;
 pub mod serial;
 pub mod ssh;
+mod ssh_integration;
 
 use std::collections::HashMap;
 use std::io::Write;

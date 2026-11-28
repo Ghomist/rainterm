@@ -468,8 +468,11 @@ function TerminalSection() {
         <Check checked={s.confirmMultilinePaste} onChange={(v) => void update({ confirmMultilinePaste: v })}>
           {tr("Ask before pasting several lines a program would run one by one")}
         </Check>
+        <Check checked={s.sshShellIntegration} onChange={(v) => void update({ sshShellIntegration: v })}>
+          {tr("Shell integration for SSH (bash / zsh / fish): file panel follows cd, command folding, exit codes — set up out of sight on connect, nothing is typed")}
+        </Check>
         <Check checked={s.sshAutoIntegration} onChange={(v) => void update({ sshAutoIntegration: v })}>
-          {tr("Set up shell integration automatically on SSH connect (types one setup line at the first prompt — can answer login-time questions by mistake; you can also enable it per terminal from the command palette)")}
+          {tr("Where that isn't possible, type a setup line at the first prompt instead (can answer login-time questions by mistake; you can also enable it per terminal from the command palette)")}
         </Check>
         <Check checked={s.suggestions} onChange={(v) => void update({ suggestions: v })}>
           {tr("Completion suggestions while typing: history, commands, paths (Ctrl+Space to pick)")}

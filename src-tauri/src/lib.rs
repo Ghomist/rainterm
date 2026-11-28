@@ -67,11 +67,12 @@ fn open_ssh(
     cols: u16,
     rows: u16,
     highlight: bool,
+    integration: Option<bool>,
     on_data: Channel<InvokeResponseBody>,
     on_event: Channel<SessionEvent>,
 ) -> CmdResult<String> {
     let (id, io) = sessions.create(on_data, on_event, highlight);
-    session::ssh::spawn(target, secret, jump_secret, cols, rows, io);
+    session::ssh::spawn(target, secret, jump_secret, cols, rows, integration.unwrap_or(true), io);
     Ok(id)
 }
 

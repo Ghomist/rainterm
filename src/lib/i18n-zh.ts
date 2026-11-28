@@ -606,8 +606,10 @@ export const zh: Record<string, string> = {
   "Show line numbers": "显示行号",
   "Copy on select": "选中即复制",
   "Right click copies selection / pastes": "右键复制选中内容 / 粘贴",
-  "Set up shell integration automatically on SSH connect (types one setup line at the first prompt — can answer login-time questions by mistake; you can also enable it per terminal from the command palette)":
-    "SSH 连接时自动配置 Shell 集成（会在第一个提示符处输入一行配置 — 可能误答登录时的提问；也可以在命令面板中按终端单独开启）",
+  "Shell integration for SSH (bash / zsh / fish): file panel follows cd, command folding, exit codes — set up out of sight on connect, nothing is typed":
+    "SSH 的 Shell 集成（bash / zsh / fish）：文件面板跟随 cd、命令折叠、退出码 — 连接时在后台配置，不会输入任何内容",
+  "Where that isn't possible, type a setup line at the first prompt instead (can answer login-time questions by mistake; you can also enable it per terminal from the command palette)":
+    "无法后台配置时，改为在第一个提示符处输入一行配置（可能误答登录时的提问；也可以在命令面板中按终端单独开启）",
   "Completion suggestions while typing: history, commands, paths (Ctrl+Space to pick)": "输入时给出补全建议：历史、命令、路径（Ctrl+Space 打开）",
   "Monitor SSH hosts (runs a small read-only command on the server every few seconds)": "监视 SSH 主机（每隔几秒在服务器上运行一个只读的小命令）",
   "Reopen tabs and splits from last time on launch": "启动时恢复上次的标签页和分屏",

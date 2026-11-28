@@ -747,7 +747,7 @@ export class TermSession {
         src.kind === "local"
           ? await ipc.openLocal(src.shell, cols, rows, hl, onData, onEvent)
           : src.kind === "ssh"
-            ? await ipc.openSsh(src.target, src.secret, src.jumpSecret, cols, rows, hl, onData, onEvent)
+            ? await ipc.openSsh(src.target, src.secret, src.jumpSecret, cols, rows, hl, this.settings.sshShellIntegration, onData, onEvent)
             : await ipc.openSerial(src.target, hl, onData, onEvent);
       if (this.disposed) void ipc.close(this.id);
       if (this.pendingHostKey !== null) {

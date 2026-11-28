@@ -11,20 +11,20 @@ use std::path::PathBuf;
 
 use portable_pty::CommandBuilder;
 
-const ZSHENV: &str = r#"# rainterm shell integration: load your own config, then add prompt marks.
+pub(super) const ZSHENV: &str = r#"# rainterm shell integration: load your own config, then add prompt marks.
 __rt_home="${RT_USER_ZDOTDIR:-$HOME}"
 __rt_zd="$ZDOTDIR"; ZDOTDIR="$__rt_home"
 [[ -f "$ZDOTDIR/.zshenv" ]] && . "$ZDOTDIR/.zshenv"
 __rt_home="$ZDOTDIR"; ZDOTDIR="$__rt_zd"
 "#;
 
-const ZPROFILE: &str = r#"__rt_zd="$ZDOTDIR"; ZDOTDIR="$__rt_home"
+pub(super) const ZPROFILE: &str = r#"__rt_zd="$ZDOTDIR"; ZDOTDIR="$__rt_home"
 [[ -f "$ZDOTDIR/.zprofile" ]] && . "$ZDOTDIR/.zprofile"
 __rt_home="$ZDOTDIR"; ZDOTDIR="$__rt_zd"
 "#;
 
 // After .zshrc, ZDOTDIR stays the user's: .zlogin and child shells use their config.
-const ZSHRC: &str = r#"ZDOTDIR="$__rt_home"
+pub(super) const ZSHRC: &str = r#"ZDOTDIR="$__rt_home"
 [[ -f "$ZDOTDIR/.zshrc" ]] && . "$ZDOTDIR/.zshrc"
 unset RT_USER_ZDOTDIR __rt_zd
 __rt_pc() { local s=$?; printf '\e]133;D;%s\a\e]7;file://%s%s\a\e]133;A\a' "$s" "$HOST" "$PWD"; return $s }

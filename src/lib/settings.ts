@@ -97,8 +97,10 @@ export interface Settings {
   showHiddenFiles: boolean;
   /** Native window translucency (Mica). Off = solid, theme-colored chrome. */
   mica: boolean;
-  /** Auto-install the bash/zsh prompt hook in SSH sessions (folding + cwd sync). */
-  /** Type the bash/zsh/fish prompt hook into new SSH sessions automatically. Off by
+  /** SSH (bash/zsh/fish): start the remote shell with prompt hooks (folding, exit codes,
+   *  cwd sync) set up out of sight on connect — nothing is typed. Off = plain shell. */
+  sshShellIntegration: boolean;
+  /** Fallback for hosts where that can't be used: type the hook at the first prompt. Off by
    *  default: typed at the wrong moment it answers login-time questions (omz updates…). */
   sshAutoIntegration: boolean;
   /** Reopen last session's tabs and splits on launch. */
@@ -196,6 +198,7 @@ export const DEFAULT_SETTINGS: Settings = {
   downloadDir: null,
   showHiddenFiles: false,
   mica: false,
+  sshShellIntegration: true,
   sshAutoIntegration: false,
   restoreSession: true,
   agentsBoard: false,

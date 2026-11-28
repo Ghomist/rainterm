@@ -292,6 +292,7 @@ export const ipc = {
     cols: number,
     rows: number,
     highlight: boolean,
+    integration: boolean,
     onData: DataChannel,
     onEvent: Channel<SessionEvent>,
   ) =>
@@ -302,6 +303,7 @@ export const ipc = {
       cols,
       rows,
       highlight,
+      integration,
       onData,
       onEvent,
     }),

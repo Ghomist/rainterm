@@ -225,8 +225,21 @@ impl Conn {
 
     /// Run a one-off command: (exit code, stdout, stderr). -1 if the server sent no status.
     pub async fn exec_full(&self, command: &str, timeout: Duration) -> anyhow::Result<(i32, String, String)> {
+        self.run_exec(command, None, timeout).await
+    }
+
+    /// Like `exec_full`, with `input` written to the command's stdin (then EOF).
+    pub async fn exec_input(&self, command: &str, input: &[u8], timeout: Duration) -> anyhow::Result<(i32, String, String)> {
+        self.run_exec(command, Some(input), timeout).await
+    }
+
+    async fn run_exec(&self, command: &str, input: Option<&[u8]>, timeout: Duration) -> anyhow::Result<(i32, String, String)> {
         let mut ch = self.handle.channel_open_session().await?;
         ch.exec(true, command).await?;
+        if let Some(input) = input {
+            ch.data(input).await?;
+            ch.eof().await?;
+        }
         let (mut out, mut err, mut code) = (Vec::new(), Vec::new(), -1i32);
         let deadline = tokio::time::Instant::now() + timeout;
         loop {
@@ -438,13 +451,14 @@ pub fn spawn(
     jump_secret: Option<String>,
     cols: u16,
     rows: u16,
+    integration: bool,
     io: BackendIo,
 ) {
     tauri::async_runtime::spawn(async move {
         let events = io.events.clone();
         let out = io.out.clone();
         let shared = io.shared.clone();
-        if let Err(e) = run(target, secret, jump_secret, cols, rows, io).await {
+        if let Err(e) = run(target, secret, jump_secret, cols, rows, integration, io).await {
             let ev = match e.downcast_ref::<NeedSecret>() {
                 Some(n) => SessionEvent::SecretRequired { kind: n.kind.into(), message: n.message.clone() },
                 None => SessionEvent::Error { message: format!("{e:#}") },
@@ -665,6 +679,7 @@ async fn run(
     jump_secret: Option<String>,
     cols: u16,
     rows: u16,
+    integration: bool,
     io: BackendIo,
 ) -> anyhow::Result<()> {
     let BackendIo { out, mut ctrl_rx, events, shared, .. } = io;
@@ -676,11 +691,21 @@ async fn run(
     }
     *shared.ssh.lock() = Some(conn.clone());
 
+    // Prompt hooks set up out of sight; `None` = plain shell (unsupported host or turned off).
+    let launch = if integration {
+        super::ssh_integration::prepare(&conn, &format!("{}@{}:{}", target.user, target.host, target.port)).await
+    } else {
+        None
+    };
+
     let channel = conn.handle.channel_open_session().await?;
     channel
         .request_pty(false, "xterm-256color", cols as u32, rows as u32, 0, 0, &[])
         .await?;
-    channel.request_shell(false).await?;
+    match launch {
+        Some(command) => channel.exec(false, command).await?,
+        None => channel.request_shell(false).await?,
+    }
     let _ = events.send(SessionEvent::Connected);
 
     let (mut read, write) = channel.split();
